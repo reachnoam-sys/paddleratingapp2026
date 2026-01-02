@@ -96,12 +96,12 @@ export function TeamCard({
           onPressIn={handlePressIn}
           onPressOut={handlePressOut}
         >
-          <Text style={styles.challengeButtonText}>Challenge</Text>
+          <Text style={styles.challengeButtonText}>Play this team</Text>
         </AnimatedPressable>
       )}
       {isChallenged && (
         <View style={styles.challengeSentButton}>
-          <Text style={styles.challengeSentText}>Challenge sent</Text>
+          <Text style={styles.challengeSentText}>Invite sent</Text>
         </View>
       )}
       {isAcceptedByMe && (

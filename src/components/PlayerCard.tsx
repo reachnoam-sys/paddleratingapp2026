@@ -73,7 +73,7 @@ export function PlayerCard({
     if (isChallenged) {
       return (
         <View style={styles.secondaryButton}>
-          <Text style={styles.secondaryButtonText}>Challenge sent</Text>
+          <Text style={styles.secondaryButtonText}>Invite sent</Text>
         </View>
       );
     }
@@ -130,7 +130,7 @@ export function PlayerCard({
           onPressIn={handlePressIn}
           onPressOut={handlePressOut}
         >
-          <Text style={styles.challengeButtonText}>Challenge</Text>
+          <Text style={styles.challengeButtonText}>Play</Text>
         </AnimatedPressable>
       );
     }

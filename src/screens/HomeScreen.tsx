@@ -34,17 +34,17 @@ import {
   MatchReadyCard,
   RecentMatchCard,
   LogMatchSheet,
-  LogMatchDrawer,
   LogMatchGrabHandle,
   PendingChallengeCard,
   ProfileSidebar,
   BottomNavBar,
   StatusSelectorModal,
+  getDerivedStatusDisplay,
 } from '../components';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import { useNearbyPlayers, useTeams, useCurrentUser } from '../hooks';
 import { eloToRating } from '../utils';
-import type { Player, Team, GameMode } from '../types';
+import type { Player, Team, GameMode, PlayPreference } from '../types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25; // 25% of screen width to trigger swipe
@@ -222,7 +222,6 @@ export function HomeScreen() {
   const [singlesCooldownPlayerId, setSinglesCooldownPlayerId] = useState<string | null>(null);
   const [showLogPrompt, setShowLogPrompt] = useState(false);
   const [showScoreFlow, setShowScoreFlow] = useState(false);
-  const [showLogDrawer, setShowLogDrawer] = useState(false);
   const [matchReadyTime, setMatchReadyTime] = useState<Date | null>(null);
   const [recentMatch, setRecentMatch] = useState<{ partner: Player; opponents: Player[] } | null>(null);
   const [isNewMatchAnimation, setIsNewMatchAnimation] = useState(true);
@@ -230,9 +229,15 @@ export function HomeScreen() {
   const [showProfileSidebar, setShowProfileSidebar] = useState(false);
   const [activeTab, setActiveTab] = useState<'courts' | 'activity' | 'leaderboard' | 'profile'>('courts');
   const [isCheckedIn, setIsCheckedIn] = useState(false);
-  const [userStatus, setUserStatus] = useState<'Ready' | 'Waiting' | 'On Court'>('Ready');
+  const [isAvailable, setIsAvailable] = useState(true);
+  const [autoMatchEnabled, setAutoMatchEnabled] = useState(true);
+  const [playPreference, setPlayPreference] = useState<PlayPreference>('Either');
   const [showStatusSelector, setShowStatusSelector] = useState(false);
   const [nextGameRequestedIds, setNextGameRequestedIds] = useState<Set<string>>(new Set());
+  // System-derived state (would come from backend in production)
+  const [isOnCourt, setIsOnCourt] = useState(false);
+  const [isMatching, setIsMatching] = useState(false);
+  const [queuePosition, setQueuePosition] = useState<number | undefined>(undefined);
 
   // Dev mode state (only used in __DEV__)
   const [showDevPanel, setShowDevPanel] = useState(false);
@@ -434,24 +439,6 @@ export function HomeScreen() {
     setIsNewMatchAnimation(true); // Reset animation for next match
   };
 
-  const handleOpenLogDrawer = () => {
-    setShowLogDrawer(true);
-  };
-
-  const handleCloseLogDrawer = () => {
-    setShowLogDrawer(false);
-  };
-
-  const handleDidntPlay = () => {
-    setShowLogDrawer(false);
-    handleCancelMatch();
-  };
-
-  const handleLogFromDrawer = () => {
-    setShowLogDrawer(false);
-    setShowScoreFlow(true);
-  };
-
   const handleFindAnotherGame = () => {
     setShowLogPrompt(true);
   };
@@ -555,13 +542,18 @@ export function HomeScreen() {
   const handleCheckIn = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsCheckedIn(true);
-    setUserStatus('Ready');
+    setIsAvailable(true);
   };
 
-  // Handle status change
-  const handleStatusChange = (status: 'Ready' | 'Waiting' | 'On Court') => {
-    setUserStatus(status);
-  };
+  // Compute system-derived status for display
+  const systemStatus = React.useMemo(() => {
+    return getDerivedStatusDisplay({
+      isOnCourt,
+      isMatching,
+      queuePosition,
+      estimatedWaitMinutes: queuePosition ? queuePosition * 8 : undefined,
+    });
+  }, [isOnCourt, isMatching, queuePosition]);
 
   // Handle request next game toggle
   const handleRequestNextGame = (player: Player) => {
@@ -678,14 +670,45 @@ export function HomeScreen() {
               </View>
 
               <View style={styles.countSection}>
-                <Text style={styles.countLabel}>
-                  {gameMode === 'singles' ? 'Live at park' : 'Players & teams'}
-                </Text>
-                <Text style={styles.countValue}>
-                  {gameMode === 'singles'
-                    ? players.length
-                    : teams.length + lookingForPartner.length}
-                </Text>
+                <Text style={styles.countLabel}>LINCOLN PARK</Text>
+                {/* Breakdown by status */}
+                <View style={styles.parkBreakdown}>
+                  <View style={styles.breakdownItem}>
+                    <View style={[styles.breakdownDot, { backgroundColor: 'rgba(57, 255, 20, 0.7)' }]} />
+                    <Text style={styles.breakdownCount}>
+                      {players.filter(p => p.status === 'Ready' || p.status === 'Available').length}
+                    </Text>
+                    <Text style={styles.breakdownLabel}>available</Text>
+                  </View>
+                  <View style={styles.breakdownItem}>
+                    <View style={[styles.breakdownDot, { backgroundColor: colors.textMuted }]} />
+                    <Text style={styles.breakdownCount}>
+                      {players.filter(p => p.status.startsWith('On Court')).length}
+                    </Text>
+                    <Text style={styles.breakdownLabel}>on court</Text>
+                  </View>
+                  <View style={styles.breakdownItem}>
+                    <View style={[styles.breakdownDot, { backgroundColor: 'rgba(255, 193, 7, 0.8)' }]} />
+                    <Text style={styles.breakdownCount}>
+                      {players.filter(p => p.status === 'Waiting').length}
+                    </Text>
+                    <Text style={styles.breakdownLabel}>waiting</Text>
+                  </View>
+                </View>
+                {/* Context-aware momentum indicator */}
+                {players.length >= 2 && (
+                  <View style={styles.momentumIndicator}>
+                    {autoMatchEnabled ? (
+                      <Text style={styles.momentumText}>
+                        {isMatching ? '✨ Finding your match...' : '⚡ Games forming quickly'}
+                      </Text>
+                    ) : (
+                      <Text style={styles.momentumTextMuted}>
+                        Auto-match off · Invite players directly
+                      </Text>
+                    )}
+                  </View>
+                )}
               </View>
             </Animated.View>
           </GestureDetector>
@@ -826,10 +849,10 @@ export function HomeScreen() {
                 {/* All discovery sections - hidden when match ready or recent match */}
                 {!isMatchReady && !effectiveRecentMatch && (
                   <>
-                    {/* Your Challenge Section - show when team accepted but user needs partner */}
+                    {/* Pending game - show when team accepted but user needs partner */}
                     {hasPendingChallenge && acceptedTeam && (
                       <>
-                        <Text style={styles.sectionTitle}>Your Challenge</Text>
+                        <Text style={styles.sectionTitle}>Pending Game</Text>
                         <PendingChallengeCard
                           acceptedTeam={acceptedTeam}
                           onCancelChallenge={handleCancelMatch}
@@ -840,7 +863,7 @@ export function HomeScreen() {
                     {/* Game Forming Section */}
                     {currentTeam && lookingForPartner.some(p => invitedPlayerIds.has(p.id) || acceptedPlayerIds.has(p.id)) && (
                       <>
-                        <Text style={[styles.sectionTitle, { marginTop: hasPendingChallenge ? spacing.xxl : 0 }]}>Game Forming</Text>
+                        <Text style={[styles.sectionTitle, { marginTop: hasPendingChallenge ? spacing.xxl : 0 }]}>Setting Up</Text>
                         {lookingForPartner
                           .filter(p => invitedPlayerIds.has(p.id) || acceptedPlayerIds.has(p.id))
                           .map((player, index) => (
@@ -855,9 +878,9 @@ export function HomeScreen() {
                       </>
                     )}
 
-                    {/* Formed Teams */}
+                    {/* Teams Ready */}
                     <Text style={[styles.sectionTitle, { marginTop: (hasPendingChallenge || (currentTeam && lookingForPartner.some(p => invitedPlayerIds.has(p.id) || acceptedPlayerIds.has(p.id)))) ? spacing.xxl : 0 }]}>
-                      Formed Teams
+                      Teams Ready
                     </Text>
                     {teams.map((team, index) => (
                       <TeamCard
@@ -871,9 +894,9 @@ export function HomeScreen() {
                       />
                     ))}
 
-                    {/* Looking for Partner */}
+                    {/* Solo Players */}
                     <Text style={[styles.sectionTitle, { marginTop: spacing.xxl }]}>
-                      Looking for Partner
+                      Solo Players
                     </Text>
                     {lookingForPartner
                       .filter(p => !acceptedPlayerIds.has(p.id) && !invitedPlayerIds.has(p.id))
@@ -908,7 +931,7 @@ export function HomeScreen() {
           style={styles.stickyActionBar}
         >
           {isCheckedIn ? (
-            // Show status pill when checked in
+            // Show status pill when checked in - uses system-derived status
             <View style={styles.checkedInContainer}>
               <Pressable
                 style={styles.statusPill}
@@ -916,12 +939,14 @@ export function HomeScreen() {
               >
                 <View style={[
                   styles.statusPillDot,
-                  { backgroundColor: userStatus === 'Ready' ? 'rgba(57, 255, 20, 0.7)' : userStatus === 'Waiting' ? 'rgba(255, 193, 7, 0.8)' : colors.textMuted }
+                  { backgroundColor: systemStatus.color }
                 ]} />
-                <Text style={styles.statusPillText}>{userStatus}</Text>
+                <Text style={styles.statusPillText}>{systemStatus.label}</Text>
                 <Text style={styles.statusPillArrow}>▾</Text>
               </Pressable>
-              <Text style={styles.checkedInLabel}>Checked in at Lincoln Park</Text>
+              <Text style={styles.checkedInLabel}>
+                {isAvailable ? 'Available at Lincoln Park' : 'At Lincoln Park'}
+              </Text>
             </View>
           ) : (
             // Show check-in button
@@ -950,14 +975,6 @@ export function HomeScreen() {
         matchSubtitle={effectiveUser && effectivePartner && opponentPlayers.length >= 2
           ? `${effectiveUser.name.split(' ')[0]} + ${effectivePartner.name.split(' ')[0]} vs ${opponentPlayers[0].name.split(' ')[0]} + ${opponentPlayers[1].name.split(' ')[0]}`
           : undefined}
-      />
-
-      {/* Log Match Drawer - swipe-up bottom sheet */}
-      <LogMatchDrawer
-        visible={showLogDrawer}
-        onLogScore={handleLogFromDrawer}
-        onDidntPlay={handleDidntPlay}
-        onClose={handleCloseLogDrawer}
       />
 
       {/* Dev Panel - only in __DEV__ mode */}
@@ -1002,8 +1019,13 @@ export function HomeScreen() {
       {/* Status Selector Modal */}
       <StatusSelectorModal
         visible={showStatusSelector}
-        currentStatus={userStatus}
-        onSelectStatus={handleStatusChange}
+        isAvailable={isAvailable}
+        autoMatchEnabled={autoMatchEnabled}
+        playPreference={playPreference}
+        systemStatus={systemStatus}
+        onToggleAvailable={setIsAvailable}
+        onToggleAutoMatch={setAutoMatchEnabled}
+        onChangePlayPreference={setPlayPreference}
         onClose={() => setShowStatusSelector(false)}
       />
     </SafeAreaView>
@@ -1033,15 +1055,47 @@ const styles = StyleSheet.create({
   },
   countLabel: {
     color: colors.textMuted,
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  countValue: {
-    color: colors.white,
+    fontSize: 12,
     fontWeight: '500',
-    fontSize: 40,
-    lineHeight: 40,
-    letterSpacing: -0.8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.md,
+  },
+  parkBreakdown: {
+    flexDirection: 'row',
+    gap: spacing.xl,
+  },
+  breakdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  breakdownDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  breakdownCount: {
+    color: colors.white,
+    fontWeight: '600',
+    fontSize: 24,
+    letterSpacing: -0.5,
+  },
+  breakdownLabel: {
+    color: colors.textMuted,
+    fontSize: 13,
+  },
+  momentumIndicator: {
+    marginTop: spacing.lg,
+  },
+  momentumText: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  momentumTextMuted: {
+    color: colors.textMuted,
+    fontSize: 13,
   },
   cardsContainer: {
     gap: spacing.md,

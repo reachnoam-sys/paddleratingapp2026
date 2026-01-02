@@ -1,9 +1,25 @@
+// User-controlled status (only one active state)
+export type UserStatus = 'Available' | 'Checked Out';
+
+// System-derived display states (computed from context)
+export type DerivedStatus = 'Available' | 'On Court' | 'In Queue' | 'Matching';
+
+// Play preference for auto-matching
+export type PlayPreference = 'Singles' | 'Doubles' | 'Either';
+
 export interface Player {
   id: string;
   name: string;
   avatar: string;
   elo: number;
-  status: 'Waiting' | 'On Court 2' | 'On Court 1' | 'Ready';
+  // Legacy status for backward compatibility - will be computed
+  status: 'Waiting' | 'On Court 2' | 'On Court 1' | 'Ready' | 'Available';
+  // New fields for system-derived state
+  isOnCourt?: boolean;
+  isInQueue?: boolean;
+  isMatching?: boolean;
+  queuePosition?: number;
+  estimatedWaitMinutes?: number;
 }
 
 export interface TeamPlayer {
@@ -18,7 +34,9 @@ export interface Team {
   player1: TeamPlayer;
   player2: TeamPlayer;
   combinedElo: number;
-  status: 'Waiting' | 'On Court 1' | 'On Court 2' | 'Ready';
+  status: 'Waiting' | 'On Court 1' | 'On Court 2' | 'Ready' | 'Available';
+  isOnCourt?: boolean;
+  isInQueue?: boolean;
 }
 
 export type GameMode = 'singles' | 'doubles';
@@ -28,6 +46,9 @@ export interface CurrentUser {
   name: string;
   avatar: string;
   elo: number;
+  // User preferences
+  autoMatchEnabled?: boolean;
+  playPreference?: PlayPreference;
 }
 
 export interface CurrentTeam {

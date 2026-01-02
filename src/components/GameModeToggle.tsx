@@ -6,7 +6,6 @@ import Animated, {
   withTiming,
   useSharedValue,
   interpolate,
-  interpolateColor,
   Easing,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -16,6 +15,8 @@ import type { GameMode } from '../types';
 interface GameModeToggleProps {
   mode: GameMode;
   onChange: (mode: GameMode) => void;
+  /** Optional hint shown below the toggle */
+  showFilterHint?: boolean;
 }
 
 const BUTTON_WIDTH = 110;
@@ -23,7 +24,7 @@ const BUTTON_WIDTH = 110;
 const AnimatedText = Animated.createAnimatedComponent(Text);
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-export function GameModeToggle({ mode, onChange }: GameModeToggleProps) {
+export function GameModeToggle({ mode, onChange, showFilterHint = true }: GameModeToggleProps) {
   const progress = useSharedValue(mode === 'singles' ? 0 : 1);
   const singlesScale = useSharedValue(mode === 'singles' ? 1 : 0.95);
   const doublesScale = useSharedValue(mode === 'doubles' ? 1 : 0.95);
@@ -88,42 +89,55 @@ export function GameModeToggle({ mode, onChange }: GameModeToggleProps) {
   };
 
   return (
-    <View style={styles.container}>
-      <Animated.View style={[styles.indicator, animatedIndicatorStyle]} />
+    <View style={styles.wrapper}>
+      <View style={styles.container}>
+        <Animated.View style={[styles.indicator, animatedIndicatorStyle]} />
 
-      <AnimatedPressable style={styles.button} onPress={() => handlePress('singles')}>
-        <AnimatedText
-          style={[
-            styles.buttonText,
-            mode === 'singles' ? styles.buttonTextActive : styles.buttonTextInactive,
-            singlesTextStyle,
-          ]}
-        >
-          Singles
-        </AnimatedText>
-      </AnimatedPressable>
+        <AnimatedPressable style={styles.button} onPress={() => handlePress('singles')}>
+          <AnimatedText
+            style={[
+              styles.buttonText,
+              mode === 'singles' ? styles.buttonTextActive : styles.buttonTextInactive,
+              singlesTextStyle,
+            ]}
+          >
+            Singles
+          </AnimatedText>
+        </AnimatedPressable>
 
-      <AnimatedPressable style={styles.button} onPress={() => handlePress('doubles')}>
-        <AnimatedText
-          style={[
-            styles.buttonText,
-            mode === 'doubles' ? styles.buttonTextActive : styles.buttonTextInactive,
-            doublesTextStyle,
-          ]}
-        >
-          Doubles
-        </AnimatedText>
-      </AnimatedPressable>
+        <AnimatedPressable style={styles.button} onPress={() => handlePress('doubles')}>
+          <AnimatedText
+            style={[
+              styles.buttonText,
+              mode === 'doubles' ? styles.buttonTextActive : styles.buttonTextInactive,
+              doublesTextStyle,
+            ]}
+          >
+            Doubles
+          </AnimatedText>
+        </AnimatedPressable>
+      </View>
+      {showFilterHint && (
+        <Text style={styles.filterHint}>Filters view - Available for both</Text>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrapper: {
+    alignItems: 'center',
+  },
   container: {
     flexDirection: 'row',
     backgroundColor: 'rgba(255, 255, 255, 0.06)',
     borderRadius: borderRadius.xl,
     padding: 5,
+  },
+  filterHint: {
+    color: colors.textMuted,
+    fontSize: 11,
+    marginTop: spacing.sm,
   },
   indicator: {
     position: 'absolute',

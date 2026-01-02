@@ -52,16 +52,16 @@ export function LookingForPartnerCard({
     scale.value = withSpring(1, { damping: 15, stiffness: 400 });
   };
 
-  // Get status display info - for looking for partner, default to a special status
+  // Get status display info - for solo players
   const getStatusInfo = () => {
     if (isOnCourt) {
       return { text: player.status, color: colors.textMuted };
     }
     if (isWaiting) {
-      return { text: 'Waiting', color: 'rgba(255, 193, 7, 0.8)' };
+      return { text: 'In queue', color: 'rgba(255, 193, 7, 0.8)' };
     }
-    // Default status for looking for partner players
-    return { text: 'Looking for partner', color: 'rgba(147, 112, 219, 0.8)' };
+    // Default status for solo players seeking a partner
+    return { text: 'Open to partner', color: 'rgba(147, 112, 219, 0.8)' };
   };
 
   const statusInfo = getStatusInfo();
@@ -174,7 +174,7 @@ export function LookingForPartnerCard({
       </View>
 
       {hasTeam && !isOnCourt && !isInvited && (
-        <Text style={styles.waitingStatus}>Waiting for 1 more player</Text>
+        <Text style={styles.waitingStatus}>Needs 1 more to start</Text>
       )}
 
       {renderCTA()}

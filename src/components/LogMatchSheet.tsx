@@ -22,7 +22,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { colors, spacing, borderRadius } from '../theme/colors';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const SHEET_HEIGHT = 440;
+const SHEET_HEIGHT = 500; // Increased to accommodate game tabs
 const DISMISS_THRESHOLD = 150;
 
 interface GameScore {
@@ -134,7 +134,16 @@ export function LogMatchSheet({
     setCurrentGameIndex(0);
   };
 
-  const handleClose = useCallback(() => {
+  // Dismiss without resetting - data persists for when user returns
+  const handleDismiss = useCallback(() => {
+    translateY.value = withTiming(SHEET_HEIGHT, { duration: 200 }, () => {
+      runOnJS(onClose)();
+    });
+    backdropOpacity.value = withTiming(0, { duration: 200 });
+  }, [onClose]);
+
+  // Close and reset - used for cancel button
+  const handleCancel = useCallback(() => {
     translateY.value = withTiming(SHEET_HEIGHT, { duration: 200 }, () => {
       runOnJS(resetState)();
       runOnJS(onClose)();
@@ -148,15 +157,17 @@ export function LogMatchSheet({
     if (validGames.length > 0) {
       onComplete(validGames);
     }
-    handleClose();
+    handleCancel(); // Reset after saving
   };
 
   // Gesture handler for dragging the sheet
   const panGesture = Gesture.Pan()
     .onStart(() => {
+      'worklet';
       context.value = { y: translateY.value };
     })
     .onUpdate((event) => {
+      'worklet';
       // Only allow dragging down (positive Y)
       const newY = context.value.y + event.translationY;
       translateY.value = Math.max(0, newY);
@@ -166,9 +177,13 @@ export function LogMatchSheet({
       backdropOpacity.value = 1 - progress;
     })
     .onEnd((event) => {
+      'worklet';
       // Dismiss if dragged past threshold or with enough velocity
       if (translateY.value > DISMISS_THRESHOLD || event.velocityY > 500) {
-        runOnJS(handleClose)();
+        translateY.value = withTiming(SHEET_HEIGHT, { duration: 200 });
+        backdropOpacity.value = withTiming(0, { duration: 200 }, () => {
+          runOnJS(onClose)();
+        });
       } else {
         // Snap back to open position
         translateY.value = withSpring(0, {
@@ -287,7 +302,7 @@ export function LogMatchSheet({
     <View style={styles.container}>
       {/* Backdrop */}
       <Animated.View style={[styles.backdrop, animatedBackdropStyle]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
+        <Pressable style={StyleSheet.absoluteFill} onPress={handleDismiss} />
       </Animated.View>
 
       {/* Sheet */}
@@ -430,7 +445,7 @@ export function LogMatchSheet({
               <Text style={styles.saveButtonText}>Save</Text>
             </Pressable>
 
-            <Pressable style={styles.cancelButton} onPress={handleClose}>
+            <Pressable style={styles.cancelButton} onPress={handleCancel}>
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </Pressable>
           </View>
@@ -500,10 +515,10 @@ const styles = StyleSheet.create({
   },
   gameTab: {
     paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.lg,
     backgroundColor: colors.background,
     borderRadius: borderRadius.md,
-    minWidth: 48,
+    minWidth: 56,
     alignItems: 'center',
   },
   gameTabActive: {
@@ -616,5 +631,129 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 14,
     fontWeight: '500',
+  },
+});
+
+// Grab handle pill component for triggering log match sheet
+export function LogMatchGrabHandle({ onPress }: { onPress: () => void }) {
+  const translateY = useSharedValue(0);
+  const hasTriggeredHaptic = useSharedValue(false);
+
+  const triggerHaptic = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  };
+
+  const triggerLightHaptic = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const swipeGesture = Gesture.Pan()
+    .onStart(() => {
+      'worklet';
+      hasTriggeredHaptic.value = false;
+    })
+    .onUpdate((event) => {
+      'worklet';
+      if (event.translationY < 0) {
+        const resistance = 0.4;
+        const maxPull = -60;
+        translateY.value = Math.max(maxPull, event.translationY * resistance);
+
+        if (translateY.value < -20 && !hasTriggeredHaptic.value) {
+          hasTriggeredHaptic.value = true;
+          runOnJS(triggerLightHaptic)();
+        }
+      }
+    })
+    .onEnd((event) => {
+      'worklet';
+      hasTriggeredHaptic.value = false;
+
+      if (event.translationY < -30 || event.velocityY < -200) {
+        runOnJS(triggerHaptic)();
+        runOnJS(onPress)();
+      }
+      translateY.value = withTiming(0, { duration: 150 });
+    });
+
+  const animatedContainerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  const animatedPillStyle = useAnimatedStyle(() => ({
+    width: interpolate(
+      translateY.value,
+      [-60, 0],
+      [60, 40],
+      Extrapolation.CLAMP
+    ),
+    backgroundColor: translateY.value < -30 ? colors.accent : colors.borderMedium,
+  }));
+
+  const animatedLabelStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      translateY.value,
+      [-40, 0],
+      [0, 1],
+      Extrapolation.CLAMP
+    ),
+  }));
+
+  const animatedHintStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      translateY.value,
+      [-40, -20],
+      [1, 0],
+      Extrapolation.CLAMP
+    ),
+  }));
+
+  return (
+    <GestureDetector gesture={swipeGesture}>
+      <Animated.View style={[grabHandleStyles.container, animatedContainerStyle]}>
+        <View style={grabHandleStyles.hitArea}>
+          <Animated.View style={[grabHandleStyles.pill, animatedPillStyle]} />
+          <Animated.Text style={[grabHandleStyles.label, animatedLabelStyle]}>
+            Swipe up to log
+          </Animated.Text>
+          <Animated.Text style={[grabHandleStyles.releaseHint, animatedHintStyle]}>
+            Release to open
+          </Animated.Text>
+        </View>
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
+const grabHandleStyles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
+    marginTop: spacing.lg,
+  },
+  hitArea: {
+    alignItems: 'center',
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.xxl * 3,
+    minHeight: 60,
+  },
+  pill: {
+    width: 40,
+    height: 5,
+    backgroundColor: colors.borderMedium,
+    borderRadius: 2.5,
+    marginBottom: spacing.sm,
+  },
+  label: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  releaseHint: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: '600',
+    position: 'absolute',
+    bottom: spacing.lg,
   },
 });
