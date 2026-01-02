@@ -1,12 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet, Animated, Alert, Pressable } from 'react-native';
-import { Settings, X } from 'lucide-react-native';
+import { Bell, Share2, X } from 'lucide-react-native';
 import { colors, spacing, borderRadius } from '../theme/colors';
 
 interface HeaderProps {
   userAvatar: string;
   userElo: string;
-  location: string;
+  locationName: string;
+  lastUpdated?: string; // e.g., "1m ago", "just now"
   // Team mode props
   partnerAvatar?: string;
   teamElo?: string;
@@ -18,9 +19,28 @@ interface HeaderProps {
   onLongPressLocation?: () => void;
   // Profile sidebar
   onProfilePress?: () => void;
+  // Actions
+  onNotificationPress?: () => void;
+  onSharePress?: () => void;
+  notificationCount?: number;
 }
 
-export function Header({ userAvatar, userElo, partnerAvatar, teamElo, onLeaveTeam, isMatchInProgress, onCancelMatch, onLongPressLocation, onProfilePress }: HeaderProps) {
+export function Header({
+  userAvatar,
+  userElo,
+  locationName,
+  lastUpdated = '1m ago',
+  partnerAvatar,
+  teamElo,
+  onLeaveTeam,
+  isMatchInProgress,
+  onCancelMatch,
+  onLongPressLocation,
+  onProfilePress,
+  onNotificationPress,
+  onSharePress,
+  notificationCount = 0,
+}: HeaderProps) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const isTeamMode = !!partnerAvatar;
 
@@ -90,23 +110,43 @@ export function Header({ userAvatar, userElo, partnerAvatar, teamElo, onLeaveTea
         onLongPress={onLongPressLocation}
         delayLongPress={2000}
       >
-        <Text style={styles.titleText}>Lincoln Park Courts</Text>
-        <View style={styles.subtitleRow}>
+        <Text style={styles.titleText}>{locationName || 'Lincoln Park Courts'}</Text>
+        <View style={styles.statusRow}>
           <Animated.View style={[styles.liveDot, { opacity: pulseAnim }]} />
-          <Text style={styles.subtitleText}>Live now · updated 1 min ago</Text>
+          <Text style={styles.statusText}>Live now · updated {lastUpdated}</Text>
         </View>
       </Pressable>
 
-      {/* Settings or Leave/Cancel Button */}
-      {isTeamMode || isMatchInProgress ? (
-        <TouchableOpacity style={styles.leaveButton} activeOpacity={0.7} onPress={handleXPress}>
-          <X size={20} color={colors.textMuted} />
-        </TouchableOpacity>
-      ) : (
-        <TouchableOpacity style={styles.settingsButton} activeOpacity={0.7}>
-          <Settings size={20} color={colors.textMuted} />
-        </TouchableOpacity>
-      )}
+      {/* Right Actions */}
+      <View style={styles.actionsSection}>
+        {isTeamMode || isMatchInProgress ? (
+          <TouchableOpacity style={styles.actionButton} activeOpacity={0.7} onPress={handleXPress}>
+            <X size={22} color={colors.textMuted} />
+          </TouchableOpacity>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.actionButton}
+              activeOpacity={0.7}
+              onPress={onNotificationPress}
+            >
+              <Bell size={22} color={colors.textSecondary} />
+              {notificationCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <View style={styles.notificationDot} />
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              activeOpacity={0.7}
+              onPress={onSharePress}
+            >
+              <Share2 size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
     </View>
   );
 }
@@ -117,53 +157,81 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
+    paddingVertical: spacing.md,
     backgroundColor: colors.background,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderLight,
   },
   userSection: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    flex: 1,
   },
   avatar: {
     width: 40,
     height: 40,
     borderRadius: borderRadius.full,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
   eloText: {
     color: colors.white,
-    fontWeight: '500',
-    fontSize: 16,
+    fontWeight: '600',
+    fontSize: 17,
   },
   locationSection: {
+    flex: 2,
     alignItems: 'center',
   },
-  titleText: {
-    color: colors.white,
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  subtitleRow: {
+  locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.xs,
     gap: spacing.sm,
   },
   liveDot: {
     width: 6,
     height: 6,
-    backgroundColor: colors.accent,
+    backgroundColor: 'rgba(57, 255, 20, 0.6)',
     borderRadius: borderRadius.full,
   },
-  subtitleText: {
-    color: colors.textSecondary,
-    fontWeight: '500',
-    fontSize: 12,
+  titleText: {
+    color: colors.white,
+    fontWeight: '600',
+    fontSize: 15,
   },
-  settingsButton: {
+  actionsSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  actionButton: {
     padding: spacing.sm,
+    position: 'relative',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+  },
+  notificationDot: {
+    width: 8,
+    height: 8,
+    backgroundColor: colors.red,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.background,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  statusText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '400',
   },
   teamAvatars: {
     flexDirection: 'row',
@@ -172,8 +240,5 @@ const styles = StyleSheet.create({
     marginLeft: -12,
     borderWidth: 2,
     borderColor: colors.background,
-  },
-  leaveButton: {
-    padding: spacing.sm,
   },
 });

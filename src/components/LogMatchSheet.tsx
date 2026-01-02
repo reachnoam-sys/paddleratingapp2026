@@ -22,7 +22,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { colors, spacing, borderRadius } from '../theme/colors';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const SHEET_HEIGHT = 520;
+const SHEET_HEIGHT = 440;
 const DISMISS_THRESHOLD = 150;
 
 interface GameScore {
@@ -243,13 +243,6 @@ export function LogMatchSheet({
   const incrementBPress = useLongPressAcceleration(incrementScoreB);
   const decrementBPress = useLongPressAcceleration(decrementScoreB);
 
-  const handleQuickScore = (a: number, b: number) => {
-    const newGames = [...games];
-    newGames[currentGameIndex] = { teamAScore: a, teamBScore: b };
-    setGames(newGames);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
-
   const addGame = () => {
     if (games.length < 5) {
       setGames([...games, { teamAScore: 0, teamBScore: 0 }]);
@@ -288,13 +281,6 @@ export function LogMatchSheet({
   // Check if current game has a valid score entered
   const hasValidCurrentScore = currentGame.teamAScore > 0 || currentGame.teamBScore > 0;
 
-  // Generate quick score options based on game target
-  const quickScores = [
-    [gameTarget, gameTarget - 4],
-    [gameTarget, gameTarget - 2],
-    [gameTarget, gameTarget - 6],
-  ];
-
   if (!visible) return null;
 
   return (
@@ -318,32 +304,6 @@ export function LogMatchSheet({
             {matchSubtitle && (
               <Text style={styles.subtitle}>{matchSubtitle}</Text>
             )}
-          </View>
-
-          {/* Game Target Selector */}
-          <View style={styles.targetRow}>
-            {([11, 15, 21] as GameTarget[]).map((target) => (
-              <Pressable
-                key={target}
-                style={[
-                  styles.targetPill,
-                  gameTarget === target && styles.targetPillActive,
-                ]}
-                onPress={() => {
-                  setGameTarget(target);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.targetPillText,
-                    gameTarget === target && styles.targetPillTextActive,
-                  ]}
-                >
-                  to {target}
-                </Text>
-              </Pressable>
-            ))}
           </View>
 
           {/* Game Tabs - show logged games */}
@@ -423,17 +383,27 @@ export function LogMatchSheet({
             </View>
           </View>
 
-          {/* Quick Score Presets */}
-          <View style={styles.quickScoreRow}>
-            <Text style={styles.quickScoreLabel}>QUICK</Text>
-            {quickScores.map(([a, b]) => (
+          {/* Game Target Selector - moved below score input */}
+          <View style={styles.targetRow}>
+            {([11, 15, 21] as GameTarget[]).map((target) => (
               <Pressable
-                key={`${a}-${b}`}
-                style={styles.quickScorePill}
-                onPress={() => handleQuickScore(a, b)}
+                key={target}
+                style={[
+                  styles.targetPill,
+                  gameTarget === target && styles.targetPillActive,
+                ]}
+                onPress={() => {
+                  setGameTarget(target);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
               >
-                <Text style={styles.quickScoreText}>
-                  {a}–{b}
+                <Text
+                  style={[
+                    styles.targetPillText,
+                    gameTarget === target && styles.targetPillTextActive,
+                  ]}
+                >
+                  to {target}
                 </Text>
               </Pressable>
             ))}
@@ -520,31 +490,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: spacing.xs,
   },
-  targetRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.xl,
-  },
-  targetPill: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
-    borderColor: colors.borderMedium,
-  },
-  targetPillActive: {
-    borderColor: colors.accent,
-    backgroundColor: 'rgba(57, 255, 20, 0.08)',
-  },
-  targetPillText: {
-    color: colors.textMuted,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  targetPillTextActive: {
-    color: colors.accent,
-  },
   gameTabsContainer: {
     maxHeight: 44,
     marginBottom: spacing.lg,
@@ -612,29 +557,30 @@ const styles = StyleSheet.create({
     minWidth: 40,
     textAlign: 'center',
   },
-  quickScoreRow: {
+  targetRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.md,
     marginBottom: spacing.lg,
   },
-  quickScoreLabel: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
-  quickScorePill: {
+  targetPill: {
     paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.background,
-    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.borderMedium,
   },
-  quickScoreText: {
-    color: colors.textSecondary,
+  targetPillActive: {
+    borderColor: colors.accent,
+    backgroundColor: 'rgba(57, 255, 20, 0.08)',
+  },
+  targetPillText: {
+    color: colors.textMuted,
     fontSize: 14,
     fontWeight: '500',
+  },
+  targetPillTextActive: {
+    color: colors.accent,
   },
   addGameButton: {
     alignSelf: 'center',

@@ -15,3 +15,5 @@ export { SessionLogPrompt } from './SessionLogPrompt';
 export { LogMatchSheet } from './LogMatchSheet';
 export { LogMatchDrawer, LogMatchGrabHandle } from './LogMatchDrawer';
 export { ProfileSidebar } from './ProfileSidebar';
+export { BottomNavBar } from './BottomNavBar';
+export { StatusSelectorModal } from './StatusSelectorModal';

@@ -9,6 +9,7 @@ import {
   StatusBar,
   ActivityIndicator,
   Alert,
+  Dimensions,
 } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -17,7 +18,12 @@ import Animated, {
   withRepeat,
   withTiming,
   FadeInUp,
+  runOnJS,
+  interpolate,
+  Extrapolation,
 } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import {
   Header,
   PlayerCard,
@@ -32,11 +38,16 @@ import {
   LogMatchGrabHandle,
   PendingChallengeCard,
   ProfileSidebar,
+  BottomNavBar,
+  StatusSelectorModal,
 } from '../components';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import { useNearbyPlayers, useTeams, useCurrentUser } from '../hooks';
 import { eloToRating } from '../utils';
 import type { Player, Team, GameMode } from '../types';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25; // 25% of screen width to trigger swipe
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -217,6 +228,11 @@ export function HomeScreen() {
   const [isNewMatchAnimation, setIsNewMatchAnimation] = useState(true);
   const [cooldownTeamId, setCooldownTeamId] = useState<string | null>(null);
   const [showProfileSidebar, setShowProfileSidebar] = useState(false);
+  const [activeTab, setActiveTab] = useState<'courts' | 'activity' | 'leaderboard' | 'profile'>('courts');
+  const [isCheckedIn, setIsCheckedIn] = useState(false);
+  const [userStatus, setUserStatus] = useState<'Ready' | 'Waiting' | 'On Court'>('Ready');
+  const [showStatusSelector, setShowStatusSelector] = useState(false);
+  const [nextGameRequestedIds, setNextGameRequestedIds] = useState<Set<string>>(new Set());
 
   // Dev mode state (only used in __DEV__)
   const [showDevPanel, setShowDevPanel] = useState(false);
@@ -535,7 +551,99 @@ export function HomeScreen() {
     buttonScale.value = withSpring(1, { damping: 15, stiffness: 400 });
   };
 
+  // Handle check-in
+  const handleCheckIn = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setIsCheckedIn(true);
+    setUserStatus('Ready');
+  };
+
+  // Handle status change
+  const handleStatusChange = (status: 'Ready' | 'Waiting' | 'On Court') => {
+    setUserStatus(status);
+  };
+
+  // Handle request next game toggle
+  const handleRequestNextGame = (player: Player) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setNextGameRequestedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(player.id)) {
+        newSet.delete(player.id);
+      } else {
+        newSet.add(player.id);
+      }
+      return newSet;
+    });
+  };
+
   const isLoading = gameMode === 'singles' ? playersLoading : teamsLoading;
+
+  // Swipe animation values
+  const swipeTranslateX = useSharedValue(0);
+  const swipeOpacity = useSharedValue(1);
+  const hasTriggeredHaptic = useSharedValue(false);
+
+  // Swipe gesture to switch between singles/doubles with premium animations
+  const triggerSwipeHaptic = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  };
+
+  const swipeToChangeMode = (direction: 'left' | 'right') => {
+    if (direction === 'left' && gameMode === 'singles') {
+      handleGameModeChange('doubles');
+    } else if (direction === 'right' && gameMode === 'doubles') {
+      handleGameModeChange('singles');
+    }
+  };
+
+  const swipeGesture = Gesture.Pan()
+    .activeOffsetX([-20, 20])
+    .onStart(() => {
+      hasTriggeredHaptic.value = false;
+    })
+    .onUpdate((event) => {
+      // Smooth parallax effect during swipe
+      swipeTranslateX.value = event.translationX * 0.3;
+
+      // Subtle opacity feedback
+      const absTranslation = Math.abs(event.translationX);
+      swipeOpacity.value = interpolate(
+        absTranslation,
+        [0, SWIPE_THRESHOLD],
+        [1, 0.85],
+        Extrapolation.CLAMP
+      );
+
+      // Haptic feedback at threshold
+      if (absTranslation >= SWIPE_THRESHOLD && !hasTriggeredHaptic.value) {
+        hasTriggeredHaptic.value = true;
+        runOnJS(triggerSwipeHaptic)();
+      }
+    })
+    .onEnd((event) => {
+      // Animate back to center with spring
+      swipeTranslateX.value = withSpring(0, {
+        damping: 20,
+        stiffness: 300,
+        mass: 0.5,
+      });
+      swipeOpacity.value = withSpring(1, {
+        damping: 15,
+        stiffness: 200,
+      });
+
+      if (event.translationX < -SWIPE_THRESHOLD) {
+        runOnJS(swipeToChangeMode)('left');
+      } else if (event.translationX > SWIPE_THRESHOLD) {
+        runOnJS(swipeToChangeMode)('right');
+      }
+    });
+
+  const swipeableHeaderStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: swipeTranslateX.value }],
+    opacity: swipeOpacity.value,
+  }));
 
   return (
     <SafeAreaView style={styles.container}>
@@ -544,7 +652,8 @@ export function HomeScreen() {
       <Header
         userAvatar={currentUserDisplay.avatar}
         userElo={currentUserDisplay.elo}
-        location="Lincoln Park Courts"
+        locationName="Lincoln Park Courts"
+        lastUpdated="1m ago"
         partnerAvatar={isDevMode ? DEV_FIXTURE_PARTNER.avatar : currentTeam?.partner.avatar}
         teamElo={isDevMode ? eloToRating(DEV_FIXTURE_PARTNER.elo) : (currentTeam ? eloToRating(Math.round(currentTeam.combinedElo / 2)) : undefined)}
         onLeaveTeam={handleLeaveTeam}
@@ -552,6 +661,7 @@ export function HomeScreen() {
         onCancelMatch={handleCancelMatch}
         onLongPressLocation={__DEV__ ? () => setShowDevPanel(true) : undefined}
         onProfilePress={() => setShowProfileSidebar(true)}
+        notificationCount={3}
       />
 
       <ScrollView
@@ -561,22 +671,24 @@ export function HomeScreen() {
       >
         {/* Hide mode toggle and counts when match is ready */}
         {!isMatchReady && (
-          <>
-            <View style={styles.toggleContainer}>
-              <GameModeToggle mode={gameMode} onChange={handleGameModeChange} />
-            </View>
+          <GestureDetector gesture={swipeGesture}>
+            <Animated.View style={[styles.swipeableHeader, swipeableHeaderStyle]}>
+              <View style={styles.toggleContainer}>
+                <GameModeToggle mode={gameMode} onChange={handleGameModeChange} />
+              </View>
 
-            <View style={styles.countSection}>
-              <Text style={styles.countLabel}>
-                {gameMode === 'singles' ? 'Players at park' : 'Players & teams'}
-              </Text>
-              <Text style={styles.countValue}>
-                {gameMode === 'singles'
-                  ? players.length
-                  : teams.length + lookingForPartner.length}
-              </Text>
-            </View>
-          </>
+              <View style={styles.countSection}>
+                <Text style={styles.countLabel}>
+                  {gameMode === 'singles' ? 'Live at park' : 'Players & teams'}
+                </Text>
+                <Text style={styles.countValue}>
+                  {gameMode === 'singles'
+                    ? players.length
+                    : teams.length + lookingForPartner.length}
+                </Text>
+              </View>
+            </Animated.View>
+          </GestureDetector>
         )}
 
         {isLoading ? (
@@ -627,9 +739,11 @@ export function HomeScreen() {
                     key={player.id}
                     player={player}
                     onChallenge={handleChallenge}
+                    onRequestNextGame={handleRequestNextGame}
                     isChallenged={challengedPlayer?.id === player.id}
                     isAcceptedByMe={acceptedPlayer?.id === player.id}
                     isCooldown={singlesCooldownPlayerId === player.id}
+                    isNextGameRequested={nextGameRequestedIds.has(player.id)}
                     index={index}
                   />
                 ))}
@@ -770,8 +884,10 @@ export function HomeScreen() {
                           onInvite={handleInvitePartner}
                           onChallengeToMatch={handleChallengeToMatch}
                           onCancelInvite={handleCancelInvite}
+                          onRequestNextGame={handleRequestNextGame}
                           hasTeam={!!currentTeam}
                           isInvited={false}
+                          isNextGameRequested={nextGameRequestedIds.has(player.id)}
                           index={teams.length + index}
                         />
                       ))}
@@ -782,7 +898,7 @@ export function HomeScreen() {
           </>
         )}
 
-        <View style={{ height: 100 }} />
+        <View style={{ height: 120 }} />
       </ScrollView>
 
       {/* Hide action bar when match is ready */}
@@ -791,30 +907,37 @@ export function HomeScreen() {
           entering={FadeInUp.duration(300)}
           style={styles.stickyActionBar}
         >
-          <AnimatedPressable
-            style={[
-              styles.actionButton,
-              gameMode === 'singles'
-                ? styles.actionButtonSecondary
-                : styles.actionButtonPrimary,
-              animatedButtonStyle,
-            ]}
-            onPressIn={handleButtonPressIn}
-            onPressOut={handleButtonPressOut}
-          >
-            {gameMode === 'singles' ? (
-              <Text style={styles.actionButtonTextSecondary}>Check in</Text>
-            ) : (
-              <View style={styles.actionButtonContent}>
-                <Animated.View style={[styles.pulseDot, animatedPulseStyle]} />
-                <Text style={styles.actionButtonTextPrimary}>
-                  {currentTeam
-                    ? `Find ${2 - acceptedPlayerIds.size} more player${2 - acceptedPlayerIds.size !== 1 ? 's' : ''}`
-                    : 'Quick Match'}
-                </Text>
-              </View>
-            )}
-          </AnimatedPressable>
+          {isCheckedIn ? (
+            // Show status pill when checked in
+            <View style={styles.checkedInContainer}>
+              <Pressable
+                style={styles.statusPill}
+                onPress={() => setShowStatusSelector(true)}
+              >
+                <View style={[
+                  styles.statusPillDot,
+                  { backgroundColor: userStatus === 'Ready' ? 'rgba(57, 255, 20, 0.7)' : userStatus === 'Waiting' ? 'rgba(255, 193, 7, 0.8)' : colors.textMuted }
+                ]} />
+                <Text style={styles.statusPillText}>{userStatus}</Text>
+                <Text style={styles.statusPillArrow}>▾</Text>
+              </Pressable>
+              <Text style={styles.checkedInLabel}>Checked in at Lincoln Park</Text>
+            </View>
+          ) : (
+            // Show check-in button
+            <AnimatedPressable
+              style={[
+                styles.actionButton,
+                styles.actionButtonPrimary,
+                animatedButtonStyle,
+              ]}
+              onPress={handleCheckIn}
+              onPressIn={handleButtonPressIn}
+              onPressOut={handleButtonPressOut}
+            >
+              <Text style={styles.actionButtonTextPrimary}>Check In</Text>
+            </AnimatedPressable>
+          )}
         </Animated.View>
       )}
 
@@ -864,6 +987,25 @@ export function HomeScreen() {
         onUpdateAvatar={(uri) => console.log('Update avatar:', uri)}
         onMatchHistory={() => console.log('Match history')}
       />
+
+      {/* Bottom Navigation Bar */}
+      <BottomNavBar
+        activeTab={activeTab}
+        onTabChange={(tab) => {
+          setActiveTab(tab);
+          if (tab === 'profile') {
+            setShowProfileSidebar(true);
+          }
+        }}
+      />
+
+      {/* Status Selector Modal */}
+      <StatusSelectorModal
+        visible={showStatusSelector}
+        currentStatus={userStatus}
+        onSelectStatus={handleStatusChange}
+        onClose={() => setShowStatusSelector(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -878,6 +1020,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: spacing.lg,
+  },
+  swipeableHeader: {
+    // Container for swipe gesture area
   },
   toggleContainer: {
     alignItems: 'center',
@@ -1002,13 +1147,10 @@ const styles = StyleSheet.create({
   },
   stickyActionBar: {
     position: 'absolute',
-    bottom: 0,
+    bottom: 100, // Above the bottom nav bar with proper spacing
     left: 0,
     right: 0,
     paddingHorizontal: spacing.lg,
-    paddingBottom: 34,
-    paddingTop: spacing.lg,
-    backgroundColor: colors.background,
   },
   actionButton: {
     paddingVertical: spacing.lg,
@@ -1043,5 +1185,39 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontWeight: '500',
     fontSize: 16,
+  },
+  checkedInContainer: {
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.full,
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  statusPillDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusPillText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  statusPillArrow: {
+    color: colors.textMuted,
+    fontSize: 10,
+    marginLeft: 2,
+  },
+  checkedInLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
   },
 });
