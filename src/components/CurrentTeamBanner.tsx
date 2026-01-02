@@ -9,13 +9,9 @@ import Animated, {
 } from 'react-native-reanimated';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import type { CurrentUser, CurrentTeam } from '../types';
+import { eloToRating } from '../utils';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
-function eloToDupr(elo: number): string {
-  const dupr = 2.0 + ((elo - 1000) / 500) * 2.0;
-  return Math.max(2.0, Math.min(6.0, dupr)).toFixed(1);
-}
 
 interface CurrentTeamBannerProps {
   currentUser: CurrentUser;
@@ -30,7 +26,7 @@ export function CurrentTeamBanner({
 }: CurrentTeamBannerProps) {
   const scale = useSharedValue(1);
   const averageElo = Math.round(currentTeam.combinedElo / 2);
-  const averageDupr = eloToDupr(averageElo);
+  const averageRating = eloToRating(averageElo);
 
   const animatedButtonStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -60,7 +56,7 @@ export function CurrentTeamBanner({
 
       <View style={styles.infoSection}>
         <Text style={styles.teamLabel}>Your Team</Text>
-        <Text style={styles.combinedElo}>{averageDupr}</Text>
+        <Text style={styles.combinedElo}>{averageRating}</Text>
         <Text style={styles.partnerNames}>
           {currentUser.name} & {currentTeam.partner.name}
         </Text>

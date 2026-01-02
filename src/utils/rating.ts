@@ -1,17 +1,17 @@
 /**
- * Convert ELO rating to DUPR rating display
- * DUPR ranges from 2.0 to 8.0 (though we cap at 6.0 for this app)
+ * Convert ELO rating to display rating (2.0 - 6.0 scale)
+ * Uses a proprietary PaddleRating scale
  */
-export function eloToDupr(elo: number): string {
-  const dupr = 2.0 + ((elo - 1000) / 500) * 2.0;
-  return Math.max(2.0, Math.min(6.0, dupr)).toFixed(1);
+export function eloToRating(elo: number): string {
+  const rating = 2.0 + ((elo - 1000) / 500) * 2.0;
+  return Math.max(2.0, Math.min(6.0, rating)).toFixed(1);
 }
 
 /**
- * Convert DUPR rating back to ELO
+ * Convert display rating back to ELO
  */
-export function duprToElo(dupr: number): number {
-  return Math.round(1000 + ((dupr - 2.0) / 2.0) * 500);
+export function ratingToElo(rating: number): number {
+  return Math.round(1000 + ((rating - 2.0) / 2.0) * 500);
 }
 
 /**
@@ -23,15 +23,15 @@ export function calculateWinProbability(playerElo: number, opponentElo: number):
 }
 
 /**
- * Get rating tier based on DUPR
+ * Get rating tier based on display rating
  */
-export function getRatingTier(dupr: number): string {
-  if (dupr < 2.5) return 'Beginner';
-  if (dupr < 3.0) return 'Novice';
-  if (dupr < 3.5) return 'Intermediate';
-  if (dupr < 4.0) return 'Advanced';
-  if (dupr < 4.5) return 'Expert';
-  if (dupr < 5.0) return 'Pro';
+export function getRatingTier(rating: number): string {
+  if (rating < 2.5) return 'Beginner';
+  if (rating < 3.0) return 'Novice';
+  if (rating < 3.5) return 'Intermediate';
+  if (rating < 4.0) return 'Advanced';
+  if (rating < 4.5) return 'Expert';
+  if (rating < 5.0) return 'Pro';
   return 'Elite';
 }
 
@@ -39,5 +39,5 @@ export function getRatingTier(dupr: number): string {
  * Format rating for display
  */
 export function formatRating(elo: number): string {
-  return eloToDupr(elo);
+  return eloToRating(elo);
 }

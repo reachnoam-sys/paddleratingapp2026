@@ -8,13 +8,9 @@ import Animated, {
 } from 'react-native-reanimated';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import type { Player } from '../types';
+import { eloToRating } from '../utils';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
-function eloToDupr(elo: number): string {
-  const dupr = 2.0 + ((elo - 1000) / 500) * 2.0;
-  return Math.max(2.0, Math.min(6.0, dupr)).toFixed(1);
-}
 
 interface LookingForPartnerCardProps {
   player: Player;
@@ -58,7 +54,7 @@ export function LookingForPartnerCard({
         <Image source={{ uri: player.avatar }} style={styles.avatar} />
         <View style={styles.info}>
           <Text style={styles.name}>{player.name}</Text>
-          <Text style={styles.elo}>{eloToDupr(player.elo)}</Text>
+          <Text style={styles.elo}>{eloToRating(player.elo)}</Text>
           <Text style={styles.status}>Looking for partner</Text>
         </View>
       </View>

@@ -38,10 +38,10 @@ const DEFAULT_GAME_TO = 11;
 const WHEEL_ITEM_HEIGHT = 44;
 const WHEEL_VISIBLE_ITEMS = 5;
 
-// Helper to convert Elo to DUPR-style rating
-function eloToDupr(elo: number): string {
-  const dupr = 2.0 + (elo - 800) * (5.5 - 2.0) / (2000 - 800);
-  return Math.max(2.0, Math.min(5.5, dupr)).toFixed(1);
+// Helper to convert Elo to display rating
+function eloToRating(elo: number): string {
+  const rating = 2.0 + (elo - 800) * (5.5 - 2.0) / (2000 - 800);
+  return Math.max(2.0, Math.min(5.5, rating)).toFixed(1);
 }
 
 interface MatchHistory {
@@ -129,8 +129,8 @@ export function MatchReadyCard({
   // Calculate team averages
   const teamAAvgElo = teamA.reduce((sum, p) => sum + p.elo, 0) / teamA.length;
   const teamBAvgElo = teamB.reduce((sum, p) => sum + p.elo, 0) / teamB.length;
-  const teamAAvgDupr = eloToDupr(teamAAvgElo);
-  const teamBAvgDupr = eloToDupr(teamBAvgElo);
+  const teamAAvgRating = eloToRating(teamAAvgElo);
+  const teamBAvgRating = eloToRating(teamBAvgElo);
   const matchDifficulty = getMatchDifficulty(teamAAvgElo, teamBAvgElo);
 
   // Animation values
@@ -494,11 +494,11 @@ export function MatchReadyCard({
               <View style={styles.ratingsSection}>
                 <View style={styles.ratingRow}>
                   <Text style={styles.ratingLabel}>Your team</Text>
-                  <Text style={styles.ratingValue}>{teamAAvgDupr} avg</Text>
+                  <Text style={styles.ratingValue}>{teamAAvgRating} avg</Text>
                 </View>
                 <View style={styles.ratingRow}>
                   <Text style={styles.ratingLabel}>Opponents</Text>
-                  <Text style={styles.ratingValue}>{teamBAvgDupr} avg</Text>
+                  <Text style={styles.ratingValue}>{teamBAvgRating} avg</Text>
                 </View>
               </View>
 

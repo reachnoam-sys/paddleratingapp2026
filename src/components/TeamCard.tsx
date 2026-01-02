@@ -8,27 +8,36 @@ import Animated, {
 } from 'react-native-reanimated';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import type { Team } from '../types';
+import { eloToRating } from '../utils';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-function eloToDupr(elo: number | undefined): string {
+function formatRating(elo: number | undefined): string {
   if (elo === undefined) return '-';
-  const dupr = 2.0 + ((elo - 1000) / 500) * 2.0;
-  return Math.max(2.0, Math.min(6.0, dupr)).toFixed(1);
+  return eloToRating(elo);
 }
 
 interface TeamCardProps {
   team: Team;
   onChallenge: (team: Team) => void;
   isChallenged?: boolean;
+  isAcceptedByMe?: boolean;
+  isCooldown?: boolean;
   index?: number;
 }
 
-export function TeamCard({ team, onChallenge, isChallenged = false, index = 0 }: TeamCardProps) {
+export function TeamCard({
+  team,
+  onChallenge,
+  isChallenged = false,
+  isAcceptedByMe = false,
+  isCooldown = false,
+  index = 0,
+}: TeamCardProps) {
   const isReady = team.status === 'Waiting' || team.status === 'Ready';
   const isPlaying = team.status.startsWith('On Court');
   const averageElo = Math.round(team.combinedElo / 2);
-  const averageDupr = eloToDupr(averageElo);
+  const averageRating = formatRating(averageElo);
 
   const scale = useSharedValue(1);
 
@@ -59,7 +68,7 @@ export function TeamCard({ team, onChallenge, isChallenged = false, index = 0 }:
 
       <View style={styles.heroSection}>
         <Text style={styles.teamAverageLabel}>Team Average</Text>
-        <Text style={styles.heroElo}>{averageDupr}</Text>
+        <Text style={styles.heroElo}>{averageRating}</Text>
       </View>
 
       <View style={styles.teamNameSection}>
@@ -70,17 +79,17 @@ export function TeamCard({ team, onChallenge, isChallenged = false, index = 0 }:
         <View style={styles.playerColumn}>
           <Image source={{ uri: team.player1.avatar }} style={styles.playerAvatar} />
           <Text style={styles.playerName}>{team.player1.name}</Text>
-          <Text style={styles.playerElo}>{eloToDupr(team.player1.elo)}</Text>
+          <Text style={styles.playerElo}>{formatRating(team.player1.elo)}</Text>
         </View>
 
         <View style={styles.playerColumn}>
           <Image source={{ uri: team.player2.avatar }} style={styles.playerAvatar} />
           <Text style={styles.playerName}>{team.player2.name}</Text>
-          <Text style={styles.playerElo}>{eloToDupr(team.player2.elo)}</Text>
+          <Text style={styles.playerElo}>{formatRating(team.player2.elo)}</Text>
         </View>
       </View>
 
-      {isReady && !isChallenged && (
+      {isReady && !isChallenged && !isAcceptedByMe && !isCooldown && (
         <AnimatedPressable
           style={[styles.challengeButton, animatedButtonStyle]}
           onPress={() => onChallenge(team)}
@@ -93,6 +102,16 @@ export function TeamCard({ team, onChallenge, isChallenged = false, index = 0 }:
       {isChallenged && (
         <View style={styles.challengeSentButton}>
           <Text style={styles.challengeSentText}>Challenge sent</Text>
+        </View>
+      )}
+      {isAcceptedByMe && (
+        <View style={styles.awaitingPartnerButton}>
+          <Text style={styles.awaitingPartnerText}>Awaiting your partner</Text>
+        </View>
+      )}
+      {isCooldown && !isAcceptedByMe && !isChallenged && (
+        <View style={styles.cooldownButton}>
+          <Text style={styles.cooldownText}>Recently cancelled</Text>
         </View>
       )}
     </Animated.View>
@@ -194,6 +213,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   challengeSentText: {
+    color: colors.textMuted,
+    fontWeight: '500',
+    fontSize: 16,
+  },
+  awaitingPartnerButton: {
+    backgroundColor: 'rgba(57, 255, 20, 0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(57, 255, 20, 0.20)',
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+    alignItems: 'center',
+  },
+  awaitingPartnerText: {
+    color: 'rgba(57, 255, 20, 0.60)',
+    fontWeight: '500',
+    fontSize: 16,
+  },
+  cooldownButton: {
+    backgroundColor: colors.whiteSubtle,
+    borderWidth: 1,
+    borderColor: colors.whiteMedium,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+    alignItems: 'center',
+  },
+  cooldownText: {
     color: colors.textMuted,
     fontWeight: '500',
     fontSize: 16,

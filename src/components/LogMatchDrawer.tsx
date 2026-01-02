@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable, Dimensions } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -8,6 +9,8 @@ import Animated, {
   runOnJS,
   FadeIn,
   FadeOut,
+  interpolate,
+  Extrapolation,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { colors, spacing, borderRadius } from '../theme/colors';
@@ -104,11 +107,99 @@ export function LogMatchDrawer({
 
 // Grab handle pill component for use outside the drawer
 export function LogMatchGrabHandle({ onPress }: { onPress: () => void }) {
+  const translateY = useSharedValue(0);
+  const hasTriggeredHaptic = useSharedValue(false);
+
+  const triggerHaptic = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  };
+
+  const triggerLightHaptic = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const swipeGesture = Gesture.Pan()
+    .onStart(() => {
+      // Reset state at the start of each gesture
+      hasTriggeredHaptic.value = false;
+    })
+    .onUpdate((event) => {
+      // Only respond to upward movement
+      if (event.translationY < 0) {
+        // Smooth resistance - moves less the further you pull
+        const resistance = 0.4;
+        const maxPull = -60;
+        translateY.value = Math.max(maxPull, event.translationY * resistance);
+
+        // Trigger haptic when crossing threshold
+        if (translateY.value < -20 && !hasTriggeredHaptic.value) {
+          hasTriggeredHaptic.value = true;
+          runOnJS(triggerLightHaptic)();
+        }
+      }
+    })
+    .onEnd((event) => {
+      // Reset haptic flag
+      hasTriggeredHaptic.value = false;
+
+      // Trigger if swiped up enough or with enough velocity
+      if (event.translationY < -30 || event.velocityY < -200) {
+        runOnJS(triggerHaptic)();
+        runOnJS(onPress)();
+      }
+      // Always smoothly reset position
+      translateY.value = withTiming(0, { duration: 150 });
+    });
+
+  // Only swipe gesture - no tap to avoid accidental triggers
+  const composedGesture = swipeGesture;
+
+  const animatedContainerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  const animatedPillStyle = useAnimatedStyle(() => ({
+    width: interpolate(
+      translateY.value,
+      [-60, 0],
+      [60, 40],
+      Extrapolation.CLAMP
+    ),
+    backgroundColor: translateY.value < -30 ? colors.accent : colors.borderMedium,
+  }));
+
+  const animatedLabelStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      translateY.value,
+      [-40, 0],
+      [0, 1],
+      Extrapolation.CLAMP
+    ),
+  }));
+
+  const animatedHintStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      translateY.value,
+      [-40, -20],
+      [1, 0],
+      Extrapolation.CLAMP
+    ),
+  }));
+
   return (
-    <Pressable style={grabHandleStyles.container} onPress={onPress}>
-      <View style={grabHandleStyles.pill} />
-      <Text style={grabHandleStyles.label}>Swipe up to log</Text>
-    </Pressable>
+    <GestureDetector gesture={composedGesture}>
+      <Animated.View style={[grabHandleStyles.container, animatedContainerStyle]}>
+        <View style={grabHandleStyles.hitArea}>
+          <Animated.View style={[grabHandleStyles.pill, animatedPillStyle]} />
+          <Animated.Text style={[grabHandleStyles.label, animatedLabelStyle]}>
+            Swipe up to log
+          </Animated.Text>
+          <Animated.Text style={[grabHandleStyles.releaseHint, animatedHintStyle]}>
+            Release to open
+          </Animated.Text>
+        </View>
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
@@ -188,8 +279,14 @@ const styles = StyleSheet.create({
 const grabHandleStyles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    paddingVertical: spacing.lg,
+    paddingVertical: spacing.xl,
     marginTop: spacing.lg,
+  },
+  hitArea: {
+    alignItems: 'center',
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.xxl * 3,
+    minHeight: 60,
   },
   pill: {
     width: 40,
@@ -202,5 +299,12 @@ const grabHandleStyles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
     fontWeight: '500',
+  },
+  releaseHint: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: '600',
+    position: 'absolute',
+    bottom: spacing.lg,
   },
 });

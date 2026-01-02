@@ -8,21 +8,27 @@ import Animated, {
 } from 'react-native-reanimated';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import type { Player } from '../types';
+import { eloToRating } from '../utils';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
-function eloToDupr(elo: number): string {
-  const dupr = 2.0 + ((elo - 1000) / 500) * 2.0;
-  return Math.max(2.0, Math.min(6.0, dupr)).toFixed(1);
-}
 
 interface PlayerCardProps {
   player: Player;
   onChallenge: (player: Player) => void;
+  isChallenged?: boolean;
+  isAcceptedByMe?: boolean;
+  isCooldown?: boolean;
   index?: number;
 }
 
-export function PlayerCard({ player, onChallenge, index = 0 }: PlayerCardProps) {
+export function PlayerCard({
+  player,
+  onChallenge,
+  isChallenged = false,
+  isAcceptedByMe = false,
+  isCooldown = false,
+  index = 0,
+}: PlayerCardProps) {
   const isReady = player.status === 'Waiting' || player.status === 'Ready';
   const isPlaying = player.status.startsWith('On Court');
 
@@ -57,11 +63,11 @@ export function PlayerCard({ player, onChallenge, index = 0 }: PlayerCardProps) 
         <Image source={{ uri: player.avatar }} style={styles.avatar} />
         <View style={styles.info}>
           <Text style={styles.name}>{player.name}</Text>
-          <Text style={styles.elo}>{eloToDupr(player.elo)}</Text>
+          <Text style={styles.elo}>{eloToRating(player.elo)}</Text>
         </View>
       </View>
 
-      {isReady && (
+      {isReady && !isChallenged && !isAcceptedByMe && !isCooldown && (
         <AnimatedPressable
           style={[styles.challengeButton, animatedButtonStyle]}
           onPress={() => onChallenge(player)}
@@ -70,6 +76,21 @@ export function PlayerCard({ player, onChallenge, index = 0 }: PlayerCardProps) 
         >
           <Text style={styles.challengeButtonText}>Challenge</Text>
         </AnimatedPressable>
+      )}
+      {isChallenged && (
+        <View style={styles.challengeSentButton}>
+          <Text style={styles.challengeSentText}>Challenge sent</Text>
+        </View>
+      )}
+      {isAcceptedByMe && (
+        <View style={styles.acceptedButton}>
+          <Text style={styles.acceptedText}>Challenge accepted</Text>
+        </View>
+      )}
+      {isCooldown && !isAcceptedByMe && !isChallenged && (
+        <View style={styles.cooldownButton}>
+          <Text style={styles.cooldownText}>Recently cancelled</Text>
+        </View>
       )}
     </Animated.View>
   );
@@ -133,6 +154,45 @@ const styles = StyleSheet.create({
   },
   challengeButtonText: {
     color: colors.black,
+    fontWeight: '500',
+    fontSize: 16,
+  },
+  challengeSentButton: {
+    backgroundColor: colors.whiteSubtle,
+    borderWidth: 1,
+    borderColor: colors.whiteMedium,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+    alignItems: 'center',
+  },
+  challengeSentText: {
+    color: colors.textMuted,
+    fontWeight: '500',
+    fontSize: 16,
+  },
+  acceptedButton: {
+    backgroundColor: 'rgba(57, 255, 20, 0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(57, 255, 20, 0.20)',
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+    alignItems: 'center',
+  },
+  acceptedText: {
+    color: 'rgba(57, 255, 20, 0.60)',
+    fontWeight: '500',
+    fontSize: 16,
+  },
+  cooldownButton: {
+    backgroundColor: colors.whiteSubtle,
+    borderWidth: 1,
+    borderColor: colors.whiteMedium,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+    alignItems: 'center',
+  },
+  cooldownText: {
+    color: colors.textMuted,
     fontWeight: '500',
     fontSize: 16,
   },

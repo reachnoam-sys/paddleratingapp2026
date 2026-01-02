@@ -8,6 +8,7 @@ import {
   SafeAreaView,
   StatusBar,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -22,18 +23,19 @@ import {
   PlayerCard,
   TeamCard,
   GameModeToggle,
-  ChallengeModal,
   LookingForPartnerCard,
   JoinedPlayerCard,
   MatchReadyCard,
   RecentMatchCard,
-  QuickScoreFlow,
+  LogMatchSheet,
   LogMatchDrawer,
   LogMatchGrabHandle,
+  PendingChallengeCard,
+  ProfileSidebar,
 } from '../components';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import { useNearbyPlayers, useTeams, useCurrentUser } from '../hooks';
-import { eloToDupr } from '../utils';
+import { eloToRating } from '../utils';
 import type { Player, Team, GameMode } from '../types';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -199,19 +201,22 @@ const devStyles = StyleSheet.create({
 });
 
 export function HomeScreen() {
-  const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [gameMode, setGameMode] = useState<GameMode>('singles');
   const [invitedPlayerIds, setInvitedPlayerIds] = useState<Set<string>>(new Set());
   const [acceptedPlayerIds, setAcceptedPlayerIds] = useState<Set<string>>(new Set());
   const [challengedTeam, setChallengedTeam] = useState<Team | null>(null);
   const [acceptedTeam, setAcceptedTeam] = useState<Team | null>(null);
+  const [challengedPlayer, setChallengedPlayer] = useState<Player | null>(null);
+  const [acceptedPlayer, setAcceptedPlayer] = useState<Player | null>(null);
+  const [singlesCooldownPlayerId, setSinglesCooldownPlayerId] = useState<string | null>(null);
   const [showLogPrompt, setShowLogPrompt] = useState(false);
   const [showScoreFlow, setShowScoreFlow] = useState(false);
   const [showLogDrawer, setShowLogDrawer] = useState(false);
   const [matchReadyTime, setMatchReadyTime] = useState<Date | null>(null);
   const [recentMatch, setRecentMatch] = useState<{ partner: Player; opponents: Player[] } | null>(null);
   const [isNewMatchAnimation, setIsNewMatchAnimation] = useState(true);
+  const [cooldownTeamId, setCooldownTeamId] = useState<string | null>(null);
+  const [showProfileSidebar, setShowProfileSidebar] = useState(false);
 
   // Dev mode state (only used in __DEV__)
   const [showDevPanel, setShowDevPanel] = useState(false);
@@ -247,13 +252,20 @@ export function HomeScreen() {
   // Dev mode overrides
   const isDevMode = __DEV__ && devSessionState !== 'NONE';
 
-  // Compute if match is ready (4 players: your team + 2 accepted players OR accepted team)
+  // Compute if match is ready
+  // Singles: user + acceptedPlayer
+  // Doubles: your team + 2 accepted players OR accepted team
   const isMatchReady = React.useMemo(() => {
     if (isDevMode) {
       return devSessionState === 'MATCH_READY' || devSessionState === 'LOG_PROMPT_OPEN';
     }
+    // Singles match ready when opponent accepts
+    if (gameMode === 'singles' && acceptedPlayer) {
+      return true;
+    }
+    // Doubles match ready
     return currentTeam && (acceptedPlayerIds.size >= 2 || acceptedTeam);
-  }, [currentTeam, acceptedPlayerIds, acceptedTeam, isDevMode, devSessionState]);
+  }, [currentTeam, acceptedPlayerIds, acceptedTeam, acceptedPlayer, gameMode, isDevMode, devSessionState]);
 
   // Track when match becomes ready, detect if it's a "last game" state
   React.useEffect(() => {
@@ -273,6 +285,11 @@ export function HomeScreen() {
     const elapsed = Date.now() - matchReadyTime.getTime();
     return elapsed > 2 * 60 * 1000; // 2 minutes
   }, [matchReadyTime, isDevMode, devMinutesSinceFormed]);
+
+  // Check if user has a pending challenge (team accepted but user needs partner)
+  const hasPendingChallenge = React.useMemo(() => {
+    return acceptedTeam && !currentTeam;
+  }, [acceptedTeam, currentTeam]);
 
   // Get opponent players for match ready display
   const opponentPlayers = React.useMemo((): Player[] => {
@@ -315,7 +332,7 @@ export function HomeScreen() {
   const currentUserDisplay = user
     ? {
         avatar: user.avatar,
-        elo: eloToDupr(user.elo),
+        elo: eloToRating(user.elo),
         eloNumber: user.elo,
       }
     : {
@@ -325,8 +342,13 @@ export function HomeScreen() {
       };
 
   const handleChallenge = (player: Player) => {
-    setSelectedPlayer(player);
-    setIsModalOpen(true);
+    console.log('Challenge player:', player);
+    setChallengedPlayer(player);
+    // Simulate player accepting after 2 seconds (for demo purposes)
+    setTimeout(() => {
+      setChallengedPlayer(null);
+      setAcceptedPlayer(player);
+    }, 2000);
   };
 
   const handleChallengeTeam = (team: Team) => {
@@ -371,10 +393,28 @@ export function HomeScreen() {
   };
 
   const handleCancelMatch = () => {
+    // Set cooldown for the cancelled team (doubles)
+    if (acceptedTeam) {
+      setCooldownTeamId(acceptedTeam.id);
+      setTimeout(() => {
+        setCooldownTeamId(null);
+      }, 5000);
+    }
+    // Set cooldown for cancelled player (singles)
+    if (acceptedPlayer) {
+      setSinglesCooldownPlayerId(acceptedPlayer.id);
+      setTimeout(() => {
+        setSinglesCooldownPlayerId(null);
+      }, 5000);
+    }
+    // Clear doubles state
     setAcceptedPlayerIds(new Set());
     setAcceptedTeam(null);
     setInvitedPlayerIds(new Set());
     setChallengedTeam(null);
+    // Clear singles state
+    setChallengedPlayer(null);
+    setAcceptedPlayer(null);
     setIsNewMatchAnimation(true); // Reset animation for next match
   };
 
@@ -439,9 +479,44 @@ export function HomeScreen() {
     setRecentMatch(null);
   };
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setTimeout(() => setSelectedPlayer(null), 300);
+  // Handle game mode transitions with smart state preservation
+  const handleGameModeChange = async (newMode: GameMode) => {
+    // Switching from Doubles to Singles
+    if (gameMode === 'doubles' && newMode === 'singles') {
+      // If user has a partner, auto-transition to singles match vs partner
+      if (currentTeam) {
+        const partner = currentTeam.partner;
+        // Leave the team first
+        await leaveTeam();
+        // Clear doubles state
+        setAcceptedTeam(null);
+        setChallengedTeam(null);
+        setAcceptedPlayerIds(new Set());
+        setInvitedPlayerIds(new Set());
+        // Switch to singles and set up match against former partner
+        setGameMode(newMode);
+        // Auto-accept the partner as opponent (skip challenge animation)
+        setAcceptedPlayer(partner);
+        return;
+      }
+    }
+
+    // Switching from Singles to Doubles
+    if (gameMode === 'singles' && newMode === 'doubles') {
+      // If user has an accepted opponent, auto-form team with them
+      if (acceptedPlayer) {
+        // Auto-form team with the accepted player
+        invitePartner(acceptedPlayer);
+        // Clear singles state
+        setChallengedPlayer(null);
+        setAcceptedPlayer(null);
+        setGameMode(newMode);
+        return;
+      }
+    }
+
+    // Default: just switch modes
+    setGameMode(newMode);
   };
 
   const animatedButtonStyle = useAnimatedStyle(() => ({
@@ -471,11 +546,12 @@ export function HomeScreen() {
         userElo={currentUserDisplay.elo}
         location="Lincoln Park Courts"
         partnerAvatar={isDevMode ? DEV_FIXTURE_PARTNER.avatar : currentTeam?.partner.avatar}
-        teamElo={isDevMode ? eloToDupr(DEV_FIXTURE_PARTNER.elo) : (currentTeam ? eloToDupr(Math.round(currentTeam.combinedElo / 2)) : undefined)}
+        teamElo={isDevMode ? eloToRating(DEV_FIXTURE_PARTNER.elo) : (currentTeam ? eloToRating(Math.round(currentTeam.combinedElo / 2)) : undefined)}
         onLeaveTeam={handleLeaveTeam}
         isMatchInProgress={!!isMatchReady}
         onCancelMatch={handleCancelMatch}
         onLongPressLocation={__DEV__ ? () => setShowDevPanel(true) : undefined}
+        onProfilePress={() => setShowProfileSidebar(true)}
       />
 
       <ScrollView
@@ -487,7 +563,7 @@ export function HomeScreen() {
         {!isMatchReady && (
           <>
             <View style={styles.toggleContainer}>
-              <GameModeToggle mode={gameMode} onChange={setGameMode} />
+              <GameModeToggle mode={gameMode} onChange={handleGameModeChange} />
             </View>
 
             <View style={styles.countSection}>
@@ -511,11 +587,49 @@ export function HomeScreen() {
           <>
             {gameMode === 'singles' && (
               <View style={styles.cardsContainer}>
-                {players.map((player, index) => (
+                {/* Singles Match Ready */}
+                {isMatchReady && effectiveUser && acceptedPlayer && (
+                  <View style={styles.matchReadyContainer}>
+                    {/* Switch to Doubles button above match card */}
+                    <Animated.View entering={FadeInUp.delay(200).duration(300)}>
+                      <Pressable
+                        style={styles.switchModeButton}
+                        onPress={() => handleGameModeChange('doubles')}
+                      >
+                        <Text style={styles.switchModeText}>Switch to Doubles</Text>
+                      </Pressable>
+                    </Animated.View>
+
+                    <MatchReadyCard
+                      teamA={[effectiveUser]}
+                      teamB={[acceptedPlayer]}
+                      onCancelMatch={handleCancelMatch}
+                      onForfeit={handleCancelMatch}
+                      onSubmitScore={handleLogScores}
+                      onSaveScore={(teamAScore, teamBScore) => {
+                        console.log('Score saved:', teamAScore, '-', teamBScore);
+                        handleCancelMatch();
+                      }}
+                      isLastGame={isLastGame}
+                      isNewMatch={isNewMatchAnimation}
+                    />
+
+                    {/* Grab handle for swipe-up log drawer */}
+                    {!showLogPrompt && (
+                      <LogMatchGrabHandle onPress={() => setShowScoreFlow(true)} />
+                    )}
+                  </View>
+                )}
+
+                {/* Player cards - hidden when match ready */}
+                {!isMatchReady && players.map((player, index) => (
                   <PlayerCard
                     key={player.id}
                     player={player}
                     onChallenge={handleChallenge}
+                    isChallenged={challengedPlayer?.id === player.id}
+                    isAcceptedByMe={acceptedPlayer?.id === player.id}
+                    isCooldown={singlesCooldownPlayerId === player.id}
                     index={index}
                   />
                 ))}
@@ -544,7 +658,7 @@ export function HomeScreen() {
 
                     {/* Grab handle for swipe-up log drawer */}
                     {!showLogPrompt && (
-                      <LogMatchGrabHandle onPress={handleOpenLogDrawer} />
+                      <LogMatchGrabHandle onPress={() => setShowScoreFlow(true)} />
                     )}
 
                     {/* Legacy log prompt bottom sheet (kept for backward compatibility) */}
@@ -598,10 +712,21 @@ export function HomeScreen() {
                 {/* All discovery sections - hidden when match ready or recent match */}
                 {!isMatchReady && !effectiveRecentMatch && (
                   <>
+                    {/* Your Challenge Section - show when team accepted but user needs partner */}
+                    {hasPendingChallenge && acceptedTeam && (
+                      <>
+                        <Text style={styles.sectionTitle}>Your Challenge</Text>
+                        <PendingChallengeCard
+                          acceptedTeam={acceptedTeam}
+                          onCancelChallenge={handleCancelMatch}
+                        />
+                      </>
+                    )}
+
                     {/* Game Forming Section */}
                     {currentTeam && lookingForPartner.some(p => invitedPlayerIds.has(p.id) || acceptedPlayerIds.has(p.id)) && (
                       <>
-                        <Text style={styles.sectionTitle}>Game Forming</Text>
+                        <Text style={[styles.sectionTitle, { marginTop: hasPendingChallenge ? spacing.xxl : 0 }]}>Game Forming</Text>
                         {lookingForPartner
                           .filter(p => invitedPlayerIds.has(p.id) || acceptedPlayerIds.has(p.id))
                           .map((player, index) => (
@@ -617,7 +742,7 @@ export function HomeScreen() {
                     )}
 
                     {/* Formed Teams */}
-                    <Text style={[styles.sectionTitle, { marginTop: currentTeam && lookingForPartner.some(p => invitedPlayerIds.has(p.id) || acceptedPlayerIds.has(p.id)) ? spacing.xxl : 0 }]}>
+                    <Text style={[styles.sectionTitle, { marginTop: (hasPendingChallenge || (currentTeam && lookingForPartner.some(p => invitedPlayerIds.has(p.id) || acceptedPlayerIds.has(p.id)))) ? spacing.xxl : 0 }]}>
                       Formed Teams
                     </Text>
                     {teams.map((team, index) => (
@@ -626,6 +751,8 @@ export function HomeScreen() {
                         team={team}
                         onChallenge={handleChallengeTeam}
                         isChallenged={challengedTeam?.id === team.id}
+                        isAcceptedByMe={acceptedTeam?.id === team.id}
+                        isCooldown={cooldownTeamId === team.id}
                         index={index}
                       />
                     ))}
@@ -691,19 +818,15 @@ export function HomeScreen() {
         </Animated.View>
       )}
 
-      <ChallengeModal
-        isOpen={isModalOpen}
-        onClose={handleCloseModal}
-        player={selectedPlayer}
-        userElo={user?.elo ?? 1200}
-      />
-
-      <QuickScoreFlow
+      <LogMatchSheet
         visible={showScoreFlow}
         onClose={() => setShowScoreFlow(false)}
         onComplete={handleScoreFlowComplete}
-        teamALabel="We"
-        teamBLabel="They"
+        teamALabel="You"
+        teamBLabel="Them"
+        matchSubtitle={effectiveUser && effectivePartner && opponentPlayers.length >= 2
+          ? `${effectiveUser.name.split(' ')[0]} + ${effectivePartner.name.split(' ')[0]} vs ${opponentPlayers[0].name.split(' ')[0]} + ${opponentPlayers[1].name.split(' ')[0]}`
+          : undefined}
       />
 
       {/* Log Match Drawer - swipe-up bottom sheet */}
@@ -729,6 +852,18 @@ export function HomeScreen() {
           onClose={() => setShowDevPanel(false)}
         />
       )}
+
+      {/* Profile Sidebar */}
+      <ProfileSidebar
+        visible={showProfileSidebar}
+        onClose={() => setShowProfileSidebar(false)}
+        user={user}
+        singlesRating={user?.elo}
+        doublesRating={user?.elo ? Math.round(user.elo * 1.05) : undefined}
+        onUpdateName={(name) => console.log('Update name:', name)}
+        onUpdateAvatar={(uri) => console.log('Update avatar:', uri)}
+        onMatchHistory={() => console.log('Match history')}
+      />
     </SafeAreaView>
   );
 }
@@ -769,7 +904,22 @@ const styles = StyleSheet.create({
   matchReadyContainer: {
     flex: 1,
     justifyContent: 'center',
-    paddingTop: spacing.xxl * 2,
+    paddingTop: spacing.xxl,
+  },
+  switchModeButton: {
+    alignSelf: 'center',
+    backgroundColor: colors.card,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.full,
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  switchModeText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '500',
   },
   findNextButton: {
     alignSelf: 'center',

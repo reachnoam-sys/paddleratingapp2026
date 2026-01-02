@@ -6,8 +6,8 @@ export const APP_NAME = 'Paddle Rating';
 export const RATING = {
   MIN_ELO: 1000,
   MAX_ELO: 2000,
-  MIN_DUPR: 2.0,
-  MAX_DUPR: 6.0,
+  MIN_DISPLAY: 2.0,
+  MAX_DISPLAY: 6.0,
   DEFAULT_ELO: 1200,
 } as const;
 

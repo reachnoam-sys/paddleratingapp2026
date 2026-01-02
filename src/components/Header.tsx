@@ -16,9 +16,11 @@ interface HeaderProps {
   onCancelMatch?: () => void;
   // Dev mode
   onLongPressLocation?: () => void;
+  // Profile sidebar
+  onProfilePress?: () => void;
 }
 
-export function Header({ userAvatar, userElo, partnerAvatar, teamElo, onLeaveTeam, isMatchInProgress, onCancelMatch, onLongPressLocation }: HeaderProps) {
+export function Header({ userAvatar, userElo, partnerAvatar, teamElo, onLeaveTeam, isMatchInProgress, onCancelMatch, onLongPressLocation, onProfilePress }: HeaderProps) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const isTeamMode = !!partnerAvatar;
 
@@ -66,7 +68,11 @@ export function Header({ userAvatar, userElo, partnerAvatar, teamElo, onLeaveTea
   return (
     <View style={styles.container}>
       {/* User/Team Avatar with ELO */}
-      <View style={styles.userSection}>
+      <Pressable
+        style={styles.userSection}
+        onPress={onProfilePress}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
         {isTeamMode ? (
           <View style={styles.teamAvatars}>
             <Image source={{ uri: userAvatar }} style={styles.avatar} />
@@ -76,7 +82,7 @@ export function Header({ userAvatar, userElo, partnerAvatar, teamElo, onLeaveTea
           <Image source={{ uri: userAvatar }} style={styles.avatar} />
         )}
         <Text style={styles.eloText}>{isTeamMode ? teamElo : userElo}</Text>
-      </View>
+      </Pressable>
 
       {/* Location - Centered */}
       <Pressable
@@ -91,8 +97,8 @@ export function Header({ userAvatar, userElo, partnerAvatar, teamElo, onLeaveTea
         </View>
       </Pressable>
 
-      {/* Settings or Leave Button */}
-      {isTeamMode ? (
+      {/* Settings or Leave/Cancel Button */}
+      {isTeamMode || isMatchInProgress ? (
         <TouchableOpacity style={styles.leaveButton} activeOpacity={0.7} onPress={handleXPress}>
           <X size={20} color={colors.textMuted} />
         </TouchableOpacity>
