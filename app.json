@@ -7,6 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
+    "scheme": "paddlerating",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -15,6 +16,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.paddlerating.app",
+      "associatedDomains": [
+        "applinks:paddlerating.app",
+        "applinks:www.paddlerating.app"
+      ],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -25,7 +30,29 @@
         "backgroundColor": "#121212"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.paddlerating.app"
+      "package": "com.paddlerating.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "paddlerating.app",
+              "pathPrefix": "/court"
+            },
+            {
+              "scheme": "https",
+              "host": "www.paddlerating.app",
+              "pathPrefix": "/court"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -34,7 +61,21 @@
     "extra": {
       "eas": {
         "projectId": "4995e305-c390-4198-a735-4a639e9eb025"
+      },
+      "deepLink": {
+        "webDomain": "paddlerating.app",
+        "appScheme": "paddlerating"
+      },
+      "branch": {
+        "apiKey": "YOUR_BRANCH_LIVE_KEY",
+        "testMode": true
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/4995e305-c390-4198-a735-4a639e9eb025"
     }
   }
 }

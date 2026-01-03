@@ -75,3 +75,25 @@ export interface PlaySession {
   games: SessionGame[];
   status: 'active' | 'completed';
 }
+
+// Court/Location types for deep linking
+export interface Court {
+  id: string;
+  name: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  latitude?: number;
+  longitude?: number;
+  courtCount?: number;
+  surfaceType?: 'indoor' | 'outdoor' | 'mixed';
+  amenities?: string[];
+  imageUrl?: string;
+}
+
+// Deep link invite data
+export interface CourtInvite {
+  courtId: string;
+  referrerId?: string; // User who shared the link
+  timestamp?: number;
+}

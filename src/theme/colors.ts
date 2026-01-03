@@ -9,12 +9,12 @@ export const colors = {
   accent: '#39FF14',
   accentHover: '#2ECC11',
 
-  // Text colors
+  // Text colors - optimized for outdoor readability
   white: '#FFFFFF',
   textPrimary: '#FFFFFF',
-  textSecondary: 'rgba(255, 255, 255, 0.60)',
-  textMuted: 'rgba(255, 255, 255, 0.40)',
-  textSubtle: 'rgba(255, 255, 255, 0.50)',
+  textSecondary: 'rgba(255, 255, 255, 0.75)',
+  textMuted: 'rgba(255, 255, 255, 0.60)',
+  textSubtle: 'rgba(255, 255, 255, 0.65)',
 
   // Borders and rings
   borderLight: 'rgba(255, 255, 255, 0.05)',

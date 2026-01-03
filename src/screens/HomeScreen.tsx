@@ -8,8 +8,6 @@ import {
   SafeAreaView,
   StatusBar,
   ActivityIndicator,
-  Alert,
-  Dimensions,
 } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -18,17 +16,12 @@ import Animated, {
   withRepeat,
   withTiming,
   FadeInUp,
-  runOnJS,
-  interpolate,
-  Extrapolation,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import {
   Header,
   PlayerCard,
   TeamCard,
-  GameModeToggle,
   LookingForPartnerCard,
   JoinedPlayerCard,
   MatchReadyCard,
@@ -39,15 +32,21 @@ import {
   ProfileSidebar,
   BottomNavBar,
   StatusSelectorModal,
-  getDerivedStatusDisplay,
+  InviteBottomSheet,
+  MatchResultOverlay,
+  CheckInStatusPill,
+  MatchTypeSheet,
+  MatchSubmittedModal,
+  ActivityScreen,
+  PairCard,
+  SwitchToSinglesSheet,
 } from '../components';
+import type { PresenceStatus, MatchType, PairStatus } from '../components';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import { useNearbyPlayers, useTeams, useCurrentUser } from '../hooks';
-import { eloToRating } from '../utils';
+import { eloToRating, getNewElo } from '../utils';
 import type { Player, Team, GameMode, PlayPreference } from '../types';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25; // 25% of screen width to trigger swipe
+import { useMatchStore, playersToParticipants, Match } from '../store';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -212,7 +211,8 @@ const devStyles = StyleSheet.create({
 });
 
 export function HomeScreen() {
-  const [gameMode, setGameMode] = useState<GameMode>('singles');
+  // Default to doubles experience
+  const [gameMode, setGameMode] = useState<GameMode>('doubles');
   const [invitedPlayerIds, setInvitedPlayerIds] = useState<Set<string>>(new Set());
   const [acceptedPlayerIds, setAcceptedPlayerIds] = useState<Set<string>>(new Set());
   const [challengedTeam, setChallengedTeam] = useState<Team | null>(null);
@@ -228,21 +228,50 @@ export function HomeScreen() {
   const [cooldownTeamId, setCooldownTeamId] = useState<string | null>(null);
   const [showProfileSidebar, setShowProfileSidebar] = useState(false);
   const [activeTab, setActiveTab] = useState<'courts' | 'activity' | 'leaderboard' | 'profile'>('courts');
-  const [isCheckedIn, setIsCheckedIn] = useState(false);
-  const [isAvailable, setIsAvailable] = useState(true);
+  // Top-level presence status (single source of truth)
+  const [presenceStatus, setPresenceStatus] = useState<PresenceStatus>('not_checked_in');
   const [autoMatchEnabled, setAutoMatchEnabled] = useState(true);
   const [playPreference, setPlayPreference] = useState<PlayPreference>('Either');
   const [showStatusSelector, setShowStatusSelector] = useState(false);
   const [nextGameRequestedIds, setNextGameRequestedIds] = useState<Set<string>>(new Set());
-  // System-derived state (would come from backend in production)
-  const [isOnCourt, setIsOnCourt] = useState(false);
-  const [isMatching, setIsMatching] = useState(false);
-  const [queuePosition, setQueuePosition] = useState<number | undefined>(undefined);
+  const [showInviteSheet, setShowInviteSheet] = useState(false);
+  // Match type sheet state
+  const [showMatchTypeSheet, setShowMatchTypeSheet] = useState(false);
+  const [matchTypeSheetPlayer, setMatchTypeSheetPlayer] = useState<Player | null>(null);
+  const [lastMatchTypeSelection, setLastMatchTypeSelection] = useState<MatchType>('doubles');
+  // Switch to singles confirmation sheet
+  const [showSwitchToSinglesSheet, setShowSwitchToSinglesSheet] = useState(false);
+  // Derived from presenceStatus for backward compatibility
+  const isCheckedIn = presenceStatus !== 'not_checked_in';
+  const isAvailable = presenceStatus === 'available';
+  const isOnCourt = presenceStatus === 'on_court';
+  const isMatching = presenceStatus === 'waiting';
+  const queuePosition = presenceStatus === 'waiting' ? 3 : undefined; // Mock queue position
 
   // Dev mode state (only used in __DEV__)
   const [showDevPanel, setShowDevPanel] = useState(false);
   const [devSessionState, setDevSessionState] = useState<DevSessionState>('NONE');
   const [devMinutesSinceFormed, setDevMinutesSinceFormed] = useState(0);
+
+  // Match result overlay state (legacy - kept for old result overlay)
+  const [showMatchResult, setShowMatchResult] = useState(false);
+  const [matchResult, setMatchResult] = useState<{
+    isWin: boolean;
+    previousElo: number;
+    newElo: number;
+    opponents: Player[];
+    timestamp: Date;
+  } | null>(null);
+  // Track newly logged matches for Activity highlighting
+  const [newlyLoggedMatchId, setNewlyLoggedMatchId] = useState<string | null>(null);
+
+  // Match submission state (new flow)
+  const [showMatchSubmitted, setShowMatchSubmitted] = useState(false);
+  const [submittedMatch, setSubmittedMatch] = useState<Match | null>(null);
+  const [scrollToMatchId, setScrollToMatchId] = useState<string | null>(null);
+
+  // Get match store data
+  const { pendingConfirmationCount, createMatch } = useMatchStore();
 
   // Use custom hooks for data fetching
   const { user, currentTeam, invitePartner, leaveTeam } = useCurrentUser();
@@ -362,8 +391,35 @@ export function HomeScreen() {
         eloNumber: 1200,
       };
 
-  const handleChallenge = (player: Player) => {
-    console.log('Challenge player:', player);
+  // Open match type sheet when user taps "Play" on a player card
+  const handlePlayPress = (player: Player) => {
+    setMatchTypeSheetPlayer(player);
+    setShowMatchTypeSheet(true);
+  };
+
+  // Handle doubles selection from match type sheet
+  const handleSelectDoubles = (player: Player) => {
+    setLastMatchTypeSelection('doubles');
+    setShowMatchTypeSheet(false);
+    setMatchTypeSheetPlayer(null);
+    // Partner up with the selected player
+    console.log('Partner request sent to:', player.name);
+    invitePartner(player);
+  };
+
+  // Handle singles selection from match type sheet
+  const handleSelectSingles = (player: Player) => {
+    setLastMatchTypeSelection('singles');
+    setShowMatchTypeSheet(false);
+    setMatchTypeSheetPlayer(null);
+    // Direct 1v1 challenge
+    setGameMode('singles');
+    handleChallengeSingles(player);
+  };
+
+  // Singles challenge flow (1v1)
+  const handleChallengeSingles = (player: Player) => {
+    console.log('Challenge player (singles):', player);
     setChallengedPlayer(player);
     // Simulate player accepting after 2 seconds (for demo purposes)
     setTimeout(() => {
@@ -476,10 +532,85 @@ export function HomeScreen() {
     setShowScoreFlow(true);
   };
 
-  const handleScoreFlowComplete = () => {
+  const handleScoreFlowComplete = (games: { teamAScore: number; teamBScore: number }[]) => {
     setShowScoreFlow(false);
+
+    // Get opponents for the match
+    const currentOpponents = gameMode === 'singles'
+      ? (acceptedPlayer ? [acceptedPlayer] : [])
+      : opponentPlayers;
+
+    // Build team A (user's team)
+    const teamAPlayers: Player[] = [];
+    if (user) {
+      teamAPlayers.push({
+        id: user.id,
+        name: user.name,
+        avatar: user.avatar,
+        elo: user.elo,
+        status: 'Ready',
+      });
+    }
+    if (gameMode === 'doubles' && currentTeam?.partner) {
+      teamAPlayers.push(currentTeam.partner);
+    }
+
+    // Create match in store with W-L record
+    const match = createMatch({
+      courtId: 'lincoln-park',
+      courtName: 'Lincoln Park',
+      mode: gameMode,
+      teamA: playersToParticipants(teamAPlayers),
+      teamB: playersToParticipants(currentOpponents),
+      games: games.map(g => ({ teamAScore: g.teamAScore, teamBScore: g.teamBScore })),
+      currentUserId: user?.id ?? 'current-user',
+    });
+
+    // Store match and show submitted modal
+    setSubmittedMatch(match);
+    setShowMatchSubmitted(true);
+    setScrollToMatchId(match.id);
+
+    // Clear match state WITHOUT triggering cooldown (not a cancel)
+    // This is a successful submission, so just clear the match-in-progress state
+    setAcceptedPlayerIds(new Set());
+    setAcceptedTeam(null);
+    setInvitedPlayerIds(new Set());
+    setChallengedTeam(null);
+    setChallengedPlayer(null);
+    setAcceptedPlayer(null);
+    setIsNewMatchAnimation(true);
+    setRecentMatch(null);
+  };
+
+  // Handle closing the match submitted modal - go back to court
+  const handleMatchSubmittedClose = () => {
+    setShowMatchSubmitted(false);
+    setSubmittedMatch(null);
+  };
+
+  // Handle viewing activity from match submitted modal
+  const handleMatchSubmittedViewActivity = () => {
+    setShowMatchSubmitted(false);
+    setSubmittedMatch(null);
+    setActiveTab('activity');
+  };
+
+  // Legacy handlers for old MatchResultOverlay (if still used elsewhere)
+  const handleMatchResultClose = () => {
+    setShowMatchResult(false);
+    setMatchResult(null);
     handleCancelMatch();
     setRecentMatch(null);
+  };
+
+  const handleViewActivity = () => {
+    setShowMatchResult(false);
+    setMatchResult(null);
+    handleCancelMatch();
+    setRecentMatch(null);
+    // Switch to activity tab
+    setActiveTab('activity');
   };
 
   // Handle game mode transitions with smart state preservation
@@ -538,22 +669,16 @@ export function HomeScreen() {
     buttonScale.value = withSpring(1, { damping: 15, stiffness: 400 });
   };
 
-  // Handle check-in
+  // Handle check-in - sets presence to available
   const handleCheckIn = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsCheckedIn(true);
-    setIsAvailable(true);
+    setPresenceStatus('available');
   };
 
-  // Compute system-derived status for display
-  const systemStatus = React.useMemo(() => {
-    return getDerivedStatusDisplay({
-      isOnCourt,
-      isMatching,
-      queuePosition,
-      estimatedWaitMinutes: queuePosition ? queuePosition * 8 : undefined,
-    });
-  }, [isOnCourt, isMatching, queuePosition]);
+  // Handle status change from modal
+  const handleStatusChange = (newStatus: PresenceStatus) => {
+    setPresenceStatus(newStatus);
+  };
 
   // Handle request next game toggle
   const handleRequestNextGame = (player: Player) => {
@@ -571,88 +696,20 @@ export function HomeScreen() {
 
   const isLoading = gameMode === 'singles' ? playersLoading : teamsLoading;
 
-  // Swipe animation values
-  const swipeTranslateX = useSharedValue(0);
-  const swipeOpacity = useSharedValue(1);
-  const hasTriggeredHaptic = useSharedValue(false);
-
-  // Swipe gesture to switch between singles/doubles with premium animations
-  const triggerSwipeHaptic = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
-
-  const swipeToChangeMode = (direction: 'left' | 'right') => {
-    if (direction === 'left' && gameMode === 'singles') {
-      handleGameModeChange('doubles');
-    } else if (direction === 'right' && gameMode === 'doubles') {
-      handleGameModeChange('singles');
-    }
-  };
-
-  const swipeGesture = Gesture.Pan()
-    .activeOffsetX([-20, 20])
-    .onStart(() => {
-      hasTriggeredHaptic.value = false;
-    })
-    .onUpdate((event) => {
-      // Smooth parallax effect during swipe
-      swipeTranslateX.value = event.translationX * 0.3;
-
-      // Subtle opacity feedback
-      const absTranslation = Math.abs(event.translationX);
-      swipeOpacity.value = interpolate(
-        absTranslation,
-        [0, SWIPE_THRESHOLD],
-        [1, 0.85],
-        Extrapolation.CLAMP
-      );
-
-      // Haptic feedback at threshold
-      if (absTranslation >= SWIPE_THRESHOLD && !hasTriggeredHaptic.value) {
-        hasTriggeredHaptic.value = true;
-        runOnJS(triggerSwipeHaptic)();
-      }
-    })
-    .onEnd((event) => {
-      // Animate back to center with spring
-      swipeTranslateX.value = withSpring(0, {
-        damping: 20,
-        stiffness: 300,
-        mass: 0.5,
-      });
-      swipeOpacity.value = withSpring(1, {
-        damping: 15,
-        stiffness: 200,
-      });
-
-      if (event.translationX < -SWIPE_THRESHOLD) {
-        runOnJS(swipeToChangeMode)('left');
-      } else if (event.translationX > SWIPE_THRESHOLD) {
-        runOnJS(swipeToChangeMode)('right');
-      }
-    });
-
-  const swipeableHeaderStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: swipeTranslateX.value }],
-    opacity: swipeOpacity.value,
-  }));
-
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
 
       <Header
         userAvatar={currentUserDisplay.avatar}
-        userElo={currentUserDisplay.elo}
         locationName="Lincoln Park Courts"
-        lastUpdated="1m ago"
         partnerAvatar={isDevMode ? DEV_FIXTURE_PARTNER.avatar : currentTeam?.partner.avatar}
-        teamElo={isDevMode ? eloToRating(DEV_FIXTURE_PARTNER.elo) : (currentTeam ? eloToRating(Math.round(currentTeam.combinedElo / 2)) : undefined)}
         onLeaveTeam={handleLeaveTeam}
         isMatchInProgress={!!isMatchReady}
         onCancelMatch={handleCancelMatch}
         onLongPressLocation={__DEV__ ? () => setShowDevPanel(true) : undefined}
         onProfilePress={() => setShowProfileSidebar(true)}
+        onSharePress={() => setShowInviteSheet(true)}
         notificationCount={3}
       />
 
@@ -661,57 +718,64 @@ export function HomeScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hide mode toggle and counts when match is ready */}
+        {/* Court stats - premium activity display */}
         {!isMatchReady && (
-          <GestureDetector gesture={swipeGesture}>
-            <Animated.View style={[styles.swipeableHeader, swipeableHeaderStyle]}>
-              <View style={styles.toggleContainer}>
-                <GameModeToggle mode={gameMode} onChange={handleGameModeChange} />
+          <View style={styles.courtStatsCard}>
+            <View style={styles.courtStatsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statCount}>
+                  {players.filter(p => p.status === 'Ready' || p.status === 'Available').length}
+                </Text>
+                <Text style={styles.statLabel}>ready</Text>
               </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statCount}>
+                  {players.filter(p => p.status.startsWith('On Court')).length}
+                </Text>
+                <Text style={styles.statLabel}>playing</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statCount}>
+                  {players.filter(p => p.status === 'Waiting').length}
+                </Text>
+                <Text style={styles.statLabel}>waiting</Text>
+              </View>
+            </View>
+          </View>
+        )}
 
-              <View style={styles.countSection}>
-                <Text style={styles.countLabel}>LINCOLN PARK</Text>
-                {/* Breakdown by status */}
-                <View style={styles.parkBreakdown}>
-                  <View style={styles.breakdownItem}>
-                    <View style={[styles.breakdownDot, { backgroundColor: 'rgba(57, 255, 20, 0.7)' }]} />
-                    <Text style={styles.breakdownCount}>
-                      {players.filter(p => p.status === 'Ready' || p.status === 'Available').length}
-                    </Text>
-                    <Text style={styles.breakdownLabel}>available</Text>
-                  </View>
-                  <View style={styles.breakdownItem}>
-                    <View style={[styles.breakdownDot, { backgroundColor: colors.textMuted }]} />
-                    <Text style={styles.breakdownCount}>
-                      {players.filter(p => p.status.startsWith('On Court')).length}
-                    </Text>
-                    <Text style={styles.breakdownLabel}>on court</Text>
-                  </View>
-                  <View style={styles.breakdownItem}>
-                    <View style={[styles.breakdownDot, { backgroundColor: 'rgba(255, 193, 7, 0.8)' }]} />
-                    <Text style={styles.breakdownCount}>
-                      {players.filter(p => p.status === 'Waiting').length}
-                    </Text>
-                    <Text style={styles.breakdownLabel}>waiting</Text>
-                  </View>
-                </View>
-                {/* Context-aware momentum indicator */}
-                {players.length >= 2 && (
-                  <View style={styles.momentumIndicator}>
-                    {autoMatchEnabled ? (
-                      <Text style={styles.momentumText}>
-                        {isMatching ? '✨ Finding your match...' : '⚡ Games forming quickly'}
-                      </Text>
-                    ) : (
-                      <Text style={styles.momentumTextMuted}>
-                        Auto-match off · Invite players directly
-                      </Text>
-                    )}
-                  </View>
-                )}
-              </View>
-            </Animated.View>
-          </GestureDetector>
+        {/* Top-level Check-in Status Pill */}
+        {!isMatchReady && (
+          <View style={styles.checkInContainer}>
+            <CheckInStatusPill
+              status={presenceStatus}
+              onCheckIn={handleCheckIn}
+              onStatusPress={() => setShowStatusSelector(true)}
+              autoMatchEnabled={autoMatchEnabled}
+            />
+          </View>
+        )}
+
+        {/* Pair Card - shown when user has a partner (doubles) or opponent (singles) */}
+        {!isMatchReady && isCheckedIn && (currentTeam || acceptedPlayer) && (
+          <View style={styles.pairCardContainer}>
+            <PairCard
+              player={gameMode === 'singles' && acceptedPlayer ? acceptedPlayer : (currentTeam?.partner ?? acceptedPlayer!)}
+              mode={gameMode === 'singles' ? 'singles' : 'doubles'}
+              status={currentTeam || acceptedPlayer ? 'paired' : 'pending'}
+              onUnpair={() => {
+                if (gameMode === 'singles') {
+                  setAcceptedPlayer(null);
+                  setChallengedPlayer(null);
+                } else {
+                  handleLeaveTeam();
+                }
+              }}
+              onSwitchToSingles={gameMode === 'doubles' && currentTeam ? () => setShowSwitchToSinglesSheet(true) : undefined}
+            />
+          </View>
         )}
 
         {isLoading ? (
@@ -741,10 +805,6 @@ export function HomeScreen() {
                       onCancelMatch={handleCancelMatch}
                       onForfeit={handleCancelMatch}
                       onSubmitScore={handleLogScores}
-                      onSaveScore={(teamAScore, teamBScore) => {
-                        console.log('Score saved:', teamAScore, '-', teamBScore);
-                        handleCancelMatch();
-                      }}
                       isLastGame={isLastGame}
                       isNewMatch={isNewMatchAnimation}
                     />
@@ -761,7 +821,7 @@ export function HomeScreen() {
                   <PlayerCard
                     key={player.id}
                     player={player}
-                    onChallenge={handleChallenge}
+                    onChallenge={handlePlayPress}
                     onRequestNextGame={handleRequestNextGame}
                     isChallenged={challengedPlayer?.id === player.id}
                     isAcceptedByMe={acceptedPlayer?.id === player.id}
@@ -784,11 +844,6 @@ export function HomeScreen() {
                       onCancelMatch={handleCancelMatch}
                       onForfeit={handleCancelMatch}
                       onSubmitScore={handleLogScores}
-                      onSaveScore={(teamAScore, teamBScore) => {
-                        console.log('Score saved:', teamAScore, '-', teamBScore);
-                        // TODO: Persist score to backend
-                        handleCancelMatch();
-                      }}
                       isLastGame={isLastGame}
                       isNewMatch={isNewMatchAnimation}
                     />
@@ -924,48 +979,6 @@ export function HomeScreen() {
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* Hide action bar when match is ready */}
-      {!isMatchReady && (
-        <Animated.View
-          entering={FadeInUp.duration(300)}
-          style={styles.stickyActionBar}
-        >
-          {isCheckedIn ? (
-            // Show status pill when checked in - uses system-derived status
-            <View style={styles.checkedInContainer}>
-              <Pressable
-                style={styles.statusPill}
-                onPress={() => setShowStatusSelector(true)}
-              >
-                <View style={[
-                  styles.statusPillDot,
-                  { backgroundColor: systemStatus.color }
-                ]} />
-                <Text style={styles.statusPillText}>{systemStatus.label}</Text>
-                <Text style={styles.statusPillArrow}>▾</Text>
-              </Pressable>
-              <Text style={styles.checkedInLabel}>
-                {isAvailable ? 'Available at Lincoln Park' : 'At Lincoln Park'}
-              </Text>
-            </View>
-          ) : (
-            // Show check-in button
-            <AnimatedPressable
-              style={[
-                styles.actionButton,
-                styles.actionButtonPrimary,
-                animatedButtonStyle,
-              ]}
-              onPress={handleCheckIn}
-              onPressIn={handleButtonPressIn}
-              onPressOut={handleButtonPressOut}
-            >
-              <Text style={styles.actionButtonTextPrimary}>Check In</Text>
-            </AnimatedPressable>
-          )}
-        </Animated.View>
-      )}
-
       <LogMatchSheet
         visible={showScoreFlow}
         onClose={() => setShowScoreFlow(false)}
@@ -1014,20 +1027,90 @@ export function HomeScreen() {
             setShowProfileSidebar(true);
           }
         }}
+        activityBadgeCount={pendingConfirmationCount}
       />
 
-      {/* Status Selector Modal */}
+      {/* Status Selector Modal - configuration only */}
       <StatusSelectorModal
         visible={showStatusSelector}
         isAvailable={isAvailable}
         autoMatchEnabled={autoMatchEnabled}
         playPreference={playPreference}
-        systemStatus={systemStatus}
-        onToggleAvailable={setIsAvailable}
+        onToggleAvailable={(available) => {
+          setPresenceStatus(available ? 'available' : 'not_checked_in');
+        }}
         onToggleAutoMatch={setAutoMatchEnabled}
         onChangePlayPreference={setPlayPreference}
+        onSwitchToSingles={() => setGameMode('singles')}
+        onSwitchToDoubles={() => setGameMode('doubles')}
         onClose={() => setShowStatusSelector(false)}
       />
+
+      {/* Switch to Singles Confirmation Sheet */}
+      <SwitchToSinglesSheet
+        visible={showSwitchToSinglesSheet}
+        partner={currentTeam?.partner ?? null}
+        onConfirm={() => {
+          setShowSwitchToSinglesSheet(false);
+          if (currentTeam) {
+            handleGameModeChange('singles');
+          }
+        }}
+        onCancel={() => setShowSwitchToSinglesSheet(false)}
+      />
+
+      {/* Match Type Sheet - Doubles vs Singles selection */}
+      <MatchTypeSheet
+        visible={showMatchTypeSheet}
+        player={matchTypeSheetPlayer}
+        lastSelection={lastMatchTypeSelection}
+        onSelectDoubles={handleSelectDoubles}
+        onSelectSingles={handleSelectSingles}
+        onClose={() => {
+          setShowMatchTypeSheet(false);
+          setMatchTypeSheetPlayer(null);
+        }}
+      />
+
+      {/* Invite Bottom Sheet */}
+      <InviteBottomSheet
+        visible={showInviteSheet}
+        onClose={() => setShowInviteSheet(false)}
+        courtId="lincoln-park"
+        courtName="Lincoln Park Courts"
+        userId={user?.id ?? 'unknown'}
+      />
+
+      {/* Match Result Overlay - Premium result moment (legacy) */}
+      {matchResult && (
+        <MatchResultOverlay
+          visible={showMatchResult}
+          isWin={matchResult.isWin}
+          previousElo={matchResult.previousElo}
+          newElo={matchResult.newElo}
+          opponents={matchResult.opponents}
+          timestamp={matchResult.timestamp}
+          onBackToCourt={handleMatchResultClose}
+          onViewActivity={handleViewActivity}
+        />
+      )}
+
+      {/* Match Submitted Modal - New match submission flow */}
+      <MatchSubmittedModal
+        visible={showMatchSubmitted}
+        match={submittedMatch}
+        onBackToCourt={handleMatchSubmittedClose}
+        onViewActivity={handleMatchSubmittedViewActivity}
+      />
+
+      {/* Activity Screen - shown when activity tab is active */}
+      {activeTab === 'activity' && (
+        <ActivityScreen
+          onClose={() => setActiveTab('courts')}
+          scrollToMatchId={scrollToMatchId}
+          onClearScrollTarget={() => setScrollToMatchId(null)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -1043,59 +1126,49 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: spacing.lg,
   },
-  swipeableHeader: {
-    // Container for swipe gesture area
+  courtStatsCard: {
+    backgroundColor: 'rgba(57, 255, 20, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(57, 255, 20, 0.15)',
+    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
   },
-  toggleContainer: {
+  courtStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
     alignItems: 'center',
-    marginBottom: spacing.xxl,
   },
-  countSection: {
-    marginBottom: spacing.xxl,
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
   },
-  countLabel: {
-    color: colors.textMuted,
-    fontSize: 12,
+  statDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  statCount: {
+    color: colors.accent,
+    fontWeight: '700',
+    fontSize: 22,
+    lineHeight: 26,
+  },
+  statLabel: {
+    color: colors.textSecondary,
+    fontSize: 11,
     fontWeight: '500',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: spacing.md,
+    marginTop: 2,
   },
-  parkBreakdown: {
-    flexDirection: 'row',
-    gap: spacing.xl,
+  pairCardContainer: {
+    marginBottom: spacing.lg,
   },
-  breakdownItem: {
-    flexDirection: 'row',
+  checkInContainer: {
     alignItems: 'center',
-    gap: 6,
-  },
-  breakdownDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  breakdownCount: {
-    color: colors.white,
-    fontWeight: '600',
-    fontSize: 24,
-    letterSpacing: -0.5,
-  },
-  breakdownLabel: {
-    color: colors.textMuted,
-    fontSize: 13,
-  },
-  momentumIndicator: {
-    marginTop: spacing.lg,
-  },
-  momentumText: {
-    color: colors.accent,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  momentumTextMuted: {
-    color: colors.textMuted,
-    fontSize: 13,
+    marginBottom: spacing.lg,
   },
   cardsContainer: {
     gap: spacing.md,

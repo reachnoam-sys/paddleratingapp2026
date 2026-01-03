@@ -41,3 +41,30 @@ export function getRatingTier(rating: number): string {
 export function formatRating(elo: number): string {
   return eloToRating(elo);
 }
+
+/**
+ * Calculate ELO change after a match
+ * K-factor determines how much a single game affects rating
+ */
+export function calculateEloChange(
+  playerElo: number,
+  opponentElo: number,
+  didWin: boolean,
+  kFactor: number = 32
+): number {
+  const expectedScore = 1 / (1 + Math.pow(10, (opponentElo - playerElo) / 400));
+  const actualScore = didWin ? 1 : 0;
+  return Math.round(kFactor * (actualScore - expectedScore));
+}
+
+/**
+ * Get the new ELO after a match result
+ */
+export function getNewElo(
+  playerElo: number,
+  opponentElo: number,
+  didWin: boolean
+): number {
+  const change = calculateEloChange(playerElo, opponentElo, didWin);
+  return playerElo + change;
+}

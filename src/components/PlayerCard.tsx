@@ -20,6 +20,7 @@ interface PlayerCardProps {
   isAcceptedByMe?: boolean;
   isCooldown?: boolean;
   isNextGameRequested?: boolean;
+  isCurrentUser?: boolean; // Highlight current user's card
   index?: number;
 }
 
@@ -31,6 +32,7 @@ export function PlayerCard({
   isAcceptedByMe = false,
   isCooldown = false,
   isNextGameRequested = false,
+  isCurrentUser = false,
   index = 0,
 }: PlayerCardProps) {
   const isReady = player.status === 'Ready';
@@ -143,7 +145,7 @@ export function PlayerCard({
       entering={FadeInDown.delay(index * 50).duration(300)}
       style={[
         styles.container,
-        isOnCourt && styles.containerOnCourt,
+        isCurrentUser && styles.containerCurrentUser,
       ]}
     >
       {/* Status badge - top right */}
@@ -181,8 +183,14 @@ const styles = StyleSheet.create({
     borderWidth: 0.5,
     borderColor: colors.borderLight,
   },
-  containerOnCourt: {
-    opacity: 0.6,
+  containerCurrentUser: {
+    borderColor: 'rgba(57, 255, 20, 0.3)',
+    borderWidth: 1,
+    shadowColor: 'rgba(57, 255, 20, 0.3)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
   },
   statusBadge: {
     position: 'absolute',

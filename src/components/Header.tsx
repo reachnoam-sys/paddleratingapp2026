@@ -5,12 +5,9 @@ import { colors, spacing, borderRadius } from '../theme/colors';
 
 interface HeaderProps {
   userAvatar: string;
-  userElo: string;
   locationName: string;
-  lastUpdated?: string; // e.g., "1m ago", "just now"
   // Team mode props
   partnerAvatar?: string;
-  teamElo?: string;
   onLeaveTeam?: () => void;
   // Match mode props
   isMatchInProgress?: boolean;
@@ -27,11 +24,8 @@ interface HeaderProps {
 
 export function Header({
   userAvatar,
-  userElo,
   locationName,
-  lastUpdated = '1m ago',
   partnerAvatar,
-  teamElo,
   onLeaveTeam,
   isMatchInProgress,
   onCancelMatch,
@@ -87,7 +81,7 @@ export function Header({
 
   return (
     <View style={styles.container}>
-      {/* User/Team Avatar with ELO */}
+      {/* User/Team Avatar */}
       <Pressable
         style={styles.userSection}
         onPress={onProfilePress}
@@ -101,10 +95,9 @@ export function Header({
         ) : (
           <Image source={{ uri: userAvatar }} style={styles.avatar} />
         )}
-        <Text style={styles.eloText}>{isTeamMode ? teamElo : userElo}</Text>
       </Pressable>
 
-      {/* Location - Centered */}
+      {/* Location - Centered, simplified */}
       <Pressable
         style={styles.locationSection}
         onLongPress={onLongPressLocation}
@@ -113,7 +106,7 @@ export function Header({
         <Text style={styles.titleText}>{locationName || 'Lincoln Park Courts'}</Text>
         <View style={styles.statusRow}>
           <Animated.View style={[styles.liveDot, { opacity: pulseAnim }]} />
-          <Text style={styles.statusText}>Live now · updated {lastUpdated}</Text>
+          <Text style={styles.statusText}>Live now</Text>
         </View>
       </Pressable>
 
@@ -173,19 +166,9 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'transparent',
   },
-  eloText: {
-    color: colors.white,
-    fontWeight: '600',
-    fontSize: 17,
-  },
   locationSection: {
     flex: 2,
     alignItems: 'center',
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
   },
   liveDot: {
     width: 6,

@@ -7,7 +7,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { MapPin, Activity, Trophy, User } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { colors, spacing } from '../theme/colors';
+import { colors, spacing, borderRadius } from '../theme/colors';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -29,16 +29,19 @@ const TABS: Tab[] = [
 interface BottomNavBarProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
+  activityBadgeCount?: number;
 }
 
 function NavTab({
   tab,
   isActive,
   onPress,
+  badgeCount,
 }: {
   tab: Tab;
   isActive: boolean;
   onPress: () => void;
+  badgeCount?: number;
 }) {
   const scale = useSharedValue(1);
   const Icon = tab.icon;
@@ -67,11 +70,20 @@ function NavTab({
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
     >
-      <Icon
-        size={20}
-        color={isActive ? colors.white : 'rgba(255, 255, 255, 0.35)'}
-        strokeWidth={isActive ? 2 : 1.5}
-      />
+      <View style={styles.iconContainer}>
+        <Icon
+          size={20}
+          color={isActive ? colors.white : colors.textMuted}
+          strokeWidth={isActive ? 2 : 1.5}
+        />
+        {badgeCount !== undefined && badgeCount > 0 && (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>
+              {badgeCount > 9 ? '9+' : badgeCount}
+            </Text>
+          </View>
+        )}
+      </View>
       <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
         {tab.label}
       </Text>
@@ -79,7 +91,7 @@ function NavTab({
   );
 }
 
-export function BottomNavBar({ activeTab, onTabChange }: BottomNavBarProps) {
+export function BottomNavBar({ activeTab, onTabChange, activityBadgeCount }: BottomNavBarProps) {
   return (
     <View style={styles.wrapper}>
       <View style={styles.container}>
@@ -89,6 +101,7 @@ export function BottomNavBar({ activeTab, onTabChange }: BottomNavBarProps) {
             tab={tab}
             isActive={activeTab === tab.id}
             onPress={() => onTabChange(tab.id)}
+            badgeCount={tab.id === 'activity' ? activityBadgeCount : undefined}
           />
         ))}
       </View>
@@ -122,8 +135,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 6,
   },
+  iconContainer: {
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    minWidth: 16,
+    height: 16,
+    backgroundColor: colors.accent,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: colors.black,
+    fontSize: 9,
+    fontWeight: '700',
+  },
   tabLabel: {
-    color: 'rgba(255, 255, 255, 0.35)',
+    color: colors.textMuted,
     fontSize: 9,
     fontWeight: '500',
     marginTop: 3,

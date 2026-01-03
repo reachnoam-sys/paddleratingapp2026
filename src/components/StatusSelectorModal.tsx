@@ -1,17 +1,22 @@
-import React from 'react';
-import { View, Text, StyleSheet, Pressable, Modal, Switch } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, StyleSheet, Pressable, Modal, Switch, Dimensions } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  FadeIn,
-  FadeOut,
-  SlideInDown,
-  SlideOutDown,
+  withTiming,
+  runOnJS,
+  interpolate,
+  Extrapolation,
+  Easing,
 } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import type { PlayPreference } from '../types';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const DISMISS_THRESHOLD = 100;
 
 // System-derived status display (read-only, shown to user)
 export interface SystemStatus {
@@ -65,10 +70,13 @@ interface StatusSelectorModalProps {
   isAvailable: boolean;
   autoMatchEnabled: boolean;
   playPreference: PlayPreference;
-  systemStatus: SystemStatus;
   onToggleAvailable: (available: boolean) => void;
   onToggleAutoMatch: (enabled: boolean) => void;
   onChangePlayPreference: (pref: PlayPreference) => void;
+  // Called when user selects Singles - should immediately switch game mode
+  onSwitchToSingles?: () => void;
+  // Called when user selects Doubles - should immediately switch game mode
+  onSwitchToDoubles?: () => void;
   onClose: () => void;
 }
 
@@ -83,12 +91,43 @@ export function StatusSelectorModal({
   isAvailable,
   autoMatchEnabled,
   playPreference,
-  systemStatus,
   onToggleAvailable,
   onToggleAutoMatch,
   onChangePlayPreference,
+  onSwitchToSingles,
+  onSwitchToDoubles,
   onClose,
 }: StatusSelectorModalProps) {
+  const translateY = useSharedValue(SCREEN_HEIGHT);
+  const overlayOpacity = useSharedValue(0);
+
+  // Spring configuration - no bounce, smooth and restrained
+  const springConfig = {
+    damping: 50,
+    stiffness: 400,
+    mass: 1,
+  };
+
+  useEffect(() => {
+    if (visible) {
+      // Animate in - smooth slide, no bounce
+      overlayOpacity.value = withTiming(1, {
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+      });
+      translateY.value = withSpring(0, springConfig);
+    } else {
+      // Animate out
+      overlayOpacity.value = withTiming(0, { duration: 150 });
+      translateY.value = withSpring(SCREEN_HEIGHT, springConfig);
+    }
+  }, [visible]);
+
+  const handleClose = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onClose();
+  };
+
   const handleToggleAvailable = (value: boolean) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onToggleAvailable(value);
@@ -102,79 +141,107 @@ export function StatusSelectorModal({
   const handlePreferenceChange = (pref: PlayPreference) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onChangePlayPreference(pref);
+
+    // Immediately switch game mode when Singles or Doubles is selected
+    if (pref === 'Singles' && onSwitchToSingles) {
+      onSwitchToSingles();
+    } else if (pref === 'Doubles' && onSwitchToDoubles) {
+      onSwitchToDoubles();
+    }
   };
+
+  // Swipe-to-dismiss gesture
+  const panGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      // Only allow downward swipe
+      if (event.translationY > 0) {
+        // Apply resistance for smooth feel
+        translateY.value = event.translationY * 0.6;
+
+        // Fade overlay as user drags
+        overlayOpacity.value = interpolate(
+          event.translationY,
+          [0, DISMISS_THRESHOLD * 2],
+          [1, 0.3],
+          Extrapolation.CLAMP
+        );
+      }
+    })
+    .onEnd((event) => {
+      if (event.translationY > DISMISS_THRESHOLD || event.velocityY > 500) {
+        // Dismiss - smooth, no bounce
+        translateY.value = withSpring(SCREEN_HEIGHT, springConfig);
+        overlayOpacity.value = withTiming(0, { duration: 150 });
+        runOnJS(handleClose)();
+      } else {
+        // Snap back - smooth
+        translateY.value = withSpring(0, springConfig);
+        overlayOpacity.value = withTiming(1, { duration: 150 });
+      }
+    });
+
+  const animatedContainerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  const animatedOverlayStyle = useAnimatedStyle(() => ({
+    opacity: overlayOpacity.value,
+  }));
+
+  if (!visible) return null;
 
   return (
     <Modal
       visible={visible}
       transparent
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
+      statusBarTranslucent
     >
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <Animated.View
-          entering={FadeIn.duration(200)}
-          exiting={FadeOut.duration(150)}
-          style={styles.overlayBackground}
-        />
-      </Pressable>
+      <View style={styles.modalContainer}>
+        <Animated.View style={[styles.overlay, animatedOverlayStyle]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
+        </Animated.View>
 
-      <Animated.View
-        entering={SlideInDown.springify().damping(20).stiffness(200)}
-        exiting={SlideOutDown.duration(200)}
-        style={styles.container}
-      >
-        <View style={styles.handle} />
+        <GestureDetector gesture={panGesture}>
+          <Animated.View style={[styles.container, animatedContainerStyle]}>
+            {/* Drag handle */}
+            <View style={styles.handleContainer}>
+              <View style={styles.handle} />
+            </View>
 
-        <Text style={styles.title}>Your availability</Text>
-        <Text style={styles.subtitle}>We'll handle the rest</Text>
+            <Text style={styles.title}>Settings</Text>
 
-        {/* Current system status display */}
-        <View style={styles.systemStatusCard}>
-          <View style={styles.systemStatusHeader}>
-            <View style={[styles.statusDot, { backgroundColor: systemStatus.color }]} />
-            <Text style={[styles.systemStatusLabel, { color: systemStatus.color }]}>
-              {systemStatus.label}
-            </Text>
-          </View>
-          <Text style={styles.systemStatusDescription}>{systemStatus.description}</Text>
-        </View>
+            {/* Available toggle */}
+            <View style={styles.settingRow}>
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>Available to play</Text>
+              </View>
+              <Switch
+                value={isAvailable}
+                onValueChange={handleToggleAvailable}
+                trackColor={{ false: 'rgba(255, 255, 255, 0.1)', true: 'rgba(57, 255, 20, 0.4)' }}
+                thumbColor={isAvailable ? 'rgba(57, 255, 20, 0.9)' : 'rgba(255, 255, 255, 0.5)'}
+              />
+            </View>
 
-        {/* Available toggle - the ONE user control */}
-        <View style={styles.settingRow}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Available to play</Text>
-            <Text style={styles.settingDescription}>
-              Turn on to join the queue
-            </Text>
-          </View>
-          <Switch
-            value={isAvailable}
-            onValueChange={handleToggleAvailable}
-            trackColor={{ false: 'rgba(255, 255, 255, 0.1)', true: 'rgba(57, 255, 20, 0.4)' }}
-            thumbColor={isAvailable ? 'rgba(57, 255, 20, 0.9)' : 'rgba(255, 255, 255, 0.5)'}
-          />
-        </View>
-
-        {/* Auto-match preference - only shown when available */}
-        {isAvailable && (
-          <>
             <View style={styles.divider} />
 
+            {/* Auto-match toggle */}
             <View style={styles.settingRow}>
               <View style={styles.settingInfo}>
                 <Text style={styles.settingLabel}>Auto-match me</Text>
-                <Text style={styles.settingDescription}>
-                  Pair me when a game opens
-                </Text>
               </View>
               <Switch
                 value={autoMatchEnabled}
                 onValueChange={handleToggleAutoMatch}
                 trackColor={{ false: 'rgba(255, 255, 255, 0.1)', true: 'rgba(57, 255, 20, 0.4)' }}
                 thumbColor={autoMatchEnabled ? 'rgba(57, 255, 20, 0.9)' : 'rgba(255, 255, 255, 0.5)'}
+                disabled={!isAvailable}
               />
             </View>
+
+            <View style={styles.divider} />
 
             {/* Play preference selector */}
             <View style={styles.preferenceSection}>
@@ -189,19 +256,14 @@ export function StatusSelectorModal({
                   />
                 ))}
               </View>
-              <Text style={styles.preferenceHint}>
-                {playPreference === 'Either'
-                  ? "You'll be matched for any available game"
-                  : `Prioritizes ${playPreference.toLowerCase()} when matching`}
-              </Text>
             </View>
-          </>
-        )}
 
-        <Pressable style={styles.doneButton} onPress={onClose}>
-          <Text style={styles.doneButtonText}>Done</Text>
-        </Pressable>
-      </Animated.View>
+            <Pressable style={styles.doneButton} onPress={handleClose}>
+              <Text style={styles.doneButtonText}>Done</Text>
+            </Pressable>
+          </Animated.View>
+        </GestureDetector>
+      </View>
     </Modal>
   );
 }
@@ -222,7 +284,7 @@ function PreferenceChip({
   }));
 
   const handlePressIn = () => {
-    scale.value = withSpring(0.95, { damping: 15, stiffness: 400 });
+    scale.value = withSpring(0.96, { damping: 15, stiffness: 400 });
   };
 
   const handlePressOut = () => {
@@ -249,70 +311,37 @@ function PreferenceChip({
 
 
 const styles = StyleSheet.create({
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-  },
-  overlayBackground: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   container: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     backgroundColor: colors.card,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     padding: spacing.xl,
     paddingBottom: 40,
   },
+  handleContainer: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.md,
+  },
   handle: {
-    width: 36,
+    width: 40,
     height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: spacing.lg,
   },
   title: {
     color: colors.white,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: spacing.xs,
-  },
-  subtitle: {
-    color: colors.textMuted,
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: spacing.xl,
-  },
-  systemStatusCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
     marginBottom: spacing.lg,
-    alignItems: 'center',
-  },
-  systemStatusHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: 4,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  systemStatusLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  systemStatusDescription: {
-    color: colors.textMuted,
-    fontSize: 13,
   },
   settingRow: {
     flexDirection: 'row',
@@ -328,19 +357,13 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 16,
     fontWeight: '500',
-    marginBottom: 2,
-  },
-  settingDescription: {
-    color: colors.textMuted,
-    fontSize: 13,
   },
   divider: {
     height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    marginVertical: spacing.sm,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
   },
   preferenceSection: {
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
   },
   preferenceLabel: {
     color: colors.textMuted,
@@ -375,12 +398,6 @@ const styles = StyleSheet.create({
   },
   preferenceChipTextSelected: {
     color: 'rgba(57, 255, 20, 0.9)',
-  },
-  preferenceHint: {
-    color: colors.textMuted,
-    fontSize: 12,
-    marginTop: spacing.sm,
-    textAlign: 'center',
   },
   doneButton: {
     backgroundColor: colors.accent,

@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: spacing.xl + 24,
     right: spacing.xl,
-    backgroundColor: colors.cardElevated ?? colors.card,
+    backgroundColor: colors.cardSecondary,
     borderRadius: borderRadius.lg,
     borderWidth: 1,
     borderColor: colors.borderMedium,

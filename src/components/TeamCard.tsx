@@ -184,13 +184,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   playerName: {
-    color: 'rgba(255, 255, 255, 0.80)',
+    color: colors.white,
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 4,
   },
   playerElo: {
-    color: 'rgba(255, 255, 255, 0.30)',
+    color: colors.textSecondary,
     fontSize: 12,
   },
   challengeButton: {

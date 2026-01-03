@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Animated, {
@@ -13,22 +14,233 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
+  withSequence,
   runOnJS,
   interpolate,
   Extrapolation,
-  FadeInDown,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Trash2 } from 'lucide-react-native';
 import { colors, spacing, borderRadius } from '../theme/colors';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const SHEET_HEIGHT = 500; // Increased to accommodate game tabs
+const SHEET_HEIGHT = 480;
 const DISMISS_THRESHOLD = 150;
 
+// Strong type for game scores - ensures no blank/invalid chips
 interface GameScore {
+  id: string;
   teamAScore: number;
   teamBScore: number;
 }
+
+// Helper to create a valid game score
+const createGameScore = (): GameScore => ({
+  id: `game-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+  teamAScore: 0,
+  teamBScore: 0,
+});
+
+// Validate a game score object
+const isValidGameScore = (game: unknown): game is GameScore => {
+  if (!game || typeof game !== 'object') return false;
+  const g = game as GameScore;
+  return (
+    typeof g.id === 'string' &&
+    typeof g.teamAScore === 'number' &&
+    typeof g.teamBScore === 'number'
+  );
+};
+
+// Swipe-to-delete game chip (Robinhood style)
+interface GameChipProps {
+  game: GameScore;
+  index: number;
+  isActive: boolean;
+  isMostRecent: boolean;
+  canDelete: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+}
+
+const SWIPE_THRESHOLD = 60;
+
+function GameChip({
+  game,
+  index,
+  isActive,
+  isMostRecent,
+  canDelete,
+  onSelect,
+  onDelete,
+}: GameChipProps) {
+  const hasScore = game.teamAScore > 0 || game.teamBScore > 0;
+
+  // Animation values - each chip maintains its own isolated state
+  const translateX = useSharedValue(0);
+  const isDeleting = useSharedValue(false);
+
+  const handleSelect = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onSelect();
+  }, [onSelect]);
+
+  const handleDelete = useCallback(() => {
+    if (isDeleting.value) return; // Prevent double deletion
+    isDeleting.value = true;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    onDelete();
+  }, [onDelete, isDeleting]);
+
+  // Tap gesture for selection
+  const tapGesture = Gesture.Tap()
+    .onEnd(() => {
+      'worklet';
+      if (isDeleting.value) return;
+      runOnJS(handleSelect)();
+    });
+
+  // Pan gesture for swipe-to-delete
+  const panGesture = Gesture.Pan()
+    .activeOffsetX([-10, 10])
+    .onUpdate((event) => {
+      'worklet';
+      if (!canDelete || !hasScore || isDeleting.value) return;
+      // Only allow left swipe (negative)
+      if (event.translationX < 0) {
+        translateX.value = Math.max(event.translationX, -100);
+      }
+    })
+    .onEnd((event) => {
+      'worklet';
+      if (!canDelete || !hasScore || isDeleting.value) {
+        translateX.value = withSpring(0, { damping: 20, stiffness: 300 });
+        return;
+      }
+
+      if (event.translationX < -SWIPE_THRESHOLD || event.velocityX < -500) {
+        // Swipe to delete - animate out first
+        translateX.value = withTiming(-200, { duration: 150 });
+        runOnJS(handleDelete)();
+      } else {
+        // Snap back
+        translateX.value = withSpring(0, { damping: 20, stiffness: 300 });
+      }
+    });
+
+  const composedGesture = Gesture.Simultaneous(tapGesture, panGesture);
+
+  const animatedChipStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  // Delete indicator behind chip
+  const deleteIndicatorStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      translateX.value,
+      [-SWIPE_THRESHOLD, 0],
+      [1, 0],
+      Extrapolation.CLAMP
+    ),
+  }));
+
+  return (
+    <View style={gameChipStyles.wrapper}>
+      {/* Delete indicator behind */}
+      {canDelete && hasScore && (
+        <Animated.View style={[gameChipStyles.deleteIndicator, deleteIndicatorStyle]}>
+          <Trash2 size={14} color={colors.white} />
+        </Animated.View>
+      )}
+
+      <GestureDetector gesture={composedGesture}>
+        <Animated.View
+          style={[
+            gameChipStyles.chip,
+            isActive && gameChipStyles.chipActive,
+            hasScore && gameChipStyles.chipRecorded,
+            isMostRecent && hasScore && gameChipStyles.chipMostRecent,
+            animatedChipStyle,
+          ]}
+        >
+          <Text style={[
+            gameChipStyles.chipText,
+            isActive && gameChipStyles.chipTextActive,
+            isMostRecent && hasScore && gameChipStyles.chipTextMostRecent,
+          ]}>
+            {hasScore ? `${game.teamAScore}–${game.teamBScore}` : `G${index + 1}`}
+          </Text>
+        </Animated.View>
+      </GestureDetector>
+    </View>
+  );
+}
+
+const gameChipStyles = StyleSheet.create({
+  wrapper: {
+    position: 'relative',
+    overflow: 'visible',
+    height: 44,
+    justifyContent: 'center',
+  },
+  chip: {
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.lg + 4,
+    backgroundColor: colors.cardSecondary,
+    borderRadius: borderRadius.lg,
+    minWidth: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  chipActive: {
+    backgroundColor: colors.whiteMedium,
+    borderWidth: 1,
+    borderColor: colors.borderMedium,
+  },
+  chipRecorded: {
+    borderWidth: 1,
+    borderColor: 'rgba(57, 255, 20, 0.2)',
+  },
+  chipMostRecent: {
+    borderColor: colors.accent,
+    shadowColor: colors.accent,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  chipText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  chipTextActive: {
+    color: colors.white,
+  },
+  chipTextMostRecent: {
+    color: colors.accent,
+  },
+  // Delete indicator shown behind chip when swiping (Robinhood red style)
+  deleteIndicator: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    left: 0,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingRight: 12,
+    backgroundColor: '#FF3B30',
+    borderRadius: borderRadius.lg,
+  },
+});
+
+// Game target is fixed at 11 with win-by-2 rules
+const GAME_TARGET = 11;
 
 interface LogMatchSheetProps {
   visible: boolean;
@@ -37,15 +249,14 @@ interface LogMatchSheetProps {
   teamALabel?: string;
   teamBLabel?: string;
   matchSubtitle?: string;
+  matchType?: 'singles' | 'doubles';
 }
 
-type GameTarget = 11 | 15 | 21;
-
-// Custom hook for long-press acceleration
+// Custom hook for long-press acceleration with haptics
 function useLongPressAcceleration(
   onIncrement: () => void,
-  initialDelay = 500,
-  fastInterval = 50
+  initialDelay = 400,
+  fastInterval = 60
 ) {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -65,7 +276,7 @@ function useLongPressAcceleration(
 
   const handlePressIn = useCallback(() => {
     isPressingRef.current = true;
-    // Initial tap
+    // Initial tap with haptic
     onIncrement();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
@@ -101,17 +312,26 @@ export function LogMatchSheet({
   teamALabel = 'You',
   teamBLabel = 'Them',
   matchSubtitle,
+  matchType = 'singles',
 }: LogMatchSheetProps) {
-  const [gameTarget, setGameTarget] = useState<GameTarget>(11);
-  const [games, setGames] = useState<GameScore[]>([{ teamAScore: 0, teamBScore: 0 }]);
+  const [games, setGames] = useState<GameScore[]>([createGameScore()]);
   const [currentGameIndex, setCurrentGameIndex] = useState(0);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Animation values
   const translateY = useSharedValue(SHEET_HEIGHT);
   const backdropOpacity = useSharedValue(0);
   const context = useSharedValue({ y: 0 });
+  const saveButtonScale = useSharedValue(1);
+
 
   const currentGame = games[currentGameIndex];
+
+  // Find the most recent recorded game index
+  const mostRecentRecordedIndex = games.reduce((latest, game, index) => {
+    const hasScore = game.teamAScore > 0 || game.teamBScore > 0;
+    return hasScore ? index : latest;
+  }, -1);
 
   // Animate sheet in/out when visibility changes
   useEffect(() => {
@@ -129,9 +349,9 @@ export function LogMatchSheet({
   }, [visible]);
 
   const resetState = () => {
-    setGameTarget(11);
-    setGames([{ teamAScore: 0, teamBScore: 0 }]);
+    setGames([createGameScore()]);
     setCurrentGameIndex(0);
+    setIsSaving(false);
   };
 
   // Dismiss without resetting - data persists for when user returns
@@ -152,12 +372,29 @@ export function LogMatchSheet({
   }, [onClose]);
 
   const handleSave = () => {
-    // Filter out games with 0-0 scores
     const validGames = games.filter(g => g.teamAScore > 0 || g.teamBScore > 0);
-    if (validGames.length > 0) {
+    if (validGames.length === 0) return;
+
+    // Show saving state
+    setIsSaving(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Animate save button
+    saveButtonScale.value = withSequence(
+      withTiming(0.95, { duration: 100 }),
+      withTiming(1, { duration: 100 })
+    );
+
+    // Brief loading state then complete
+    setTimeout(() => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onComplete(validGames);
-    }
-    handleCancel(); // Reset after saving
+      // Don't reset immediately - let the parent handle transition
+      setTimeout(() => {
+        resetState();
+        onClose();
+      }, 100);
+    }, 600);
   };
 
   // Gesture handler for dragging the sheet
@@ -168,24 +405,19 @@ export function LogMatchSheet({
     })
     .onUpdate((event) => {
       'worklet';
-      // Only allow dragging down (positive Y)
       const newY = context.value.y + event.translationY;
       translateY.value = Math.max(0, newY);
-
-      // Update backdrop opacity based on sheet position
       const progress = Math.max(0, Math.min(1, newY / SHEET_HEIGHT));
       backdropOpacity.value = 1 - progress;
     })
     .onEnd((event) => {
       'worklet';
-      // Dismiss if dragged past threshold or with enough velocity
       if (translateY.value > DISMISS_THRESHOLD || event.velocityY > 500) {
         translateY.value = withTiming(SHEET_HEIGHT, { duration: 200 });
         backdropOpacity.value = withTiming(0, { duration: 200 }, () => {
           runOnJS(onClose)();
         });
       } else {
-        // Snap back to open position
         translateY.value = withSpring(0, {
           damping: 25,
           stiffness: 300,
@@ -195,16 +427,15 @@ export function LogMatchSheet({
       }
     });
 
-  // Get max allowed score for a team given opponent's score
+  // Get max allowed score (clamped for realistic scores)
+  // Uses fixed GAME_TARGET of 11 with win-by-2 rules
   const getMaxScore = useCallback((opponentScore: number): number => {
-    // If opponent is at or above target - 1, we might need to go higher (deuce)
-    if (opponentScore >= gameTarget - 1) {
-      // Can go up to opponent + 2 (win by 2)
-      return opponentScore + 2;
+    if (opponentScore >= GAME_TARGET - 1) {
+      // Deuce scenario - can go up to opponent + 2
+      return Math.min(opponentScore + 2, 30); // Cap at 30 for realism
     }
-    // Otherwise, can only go up to target
-    return gameTarget;
-  }, [gameTarget]);
+    return GAME_TARGET;
+  }, []);
 
   const incrementScoreA = useCallback(() => {
     setGames(prevGames => {
@@ -260,7 +491,8 @@ export function LogMatchSheet({
 
   const addGame = () => {
     if (games.length < 5) {
-      setGames([...games, { teamAScore: 0, teamBScore: 0 }]);
+      const newGame = createGameScore();
+      setGames([...games, newGame]);
       setCurrentGameIndex(games.length);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
@@ -268,7 +500,6 @@ export function LogMatchSheet({
 
   const selectGame = (index: number) => {
     setCurrentGameIndex(index);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const removeGame = (index: number) => {
@@ -293,8 +524,47 @@ export function LogMatchSheet({
     opacity: backdropOpacity.value,
   }));
 
-  // Check if current game has a valid score entered
-  const hasValidCurrentScore = currentGame.teamAScore > 0 || currentGame.teamBScore > 0;
+  const animatedSaveButtonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: saveButtonScale.value }],
+  }));
+
+
+  // Check if current game is complete (to GAME_TARGET with win-by-2)
+  const isGameComplete = (() => {
+    const { teamAScore, teamBScore } = currentGame;
+    const maxScore = Math.max(teamAScore, teamBScore);
+    const minScore = Math.min(teamAScore, teamBScore);
+    if (maxScore >= GAME_TARGET && maxScore - minScore >= 2) {
+      return true;
+    }
+    return false;
+  })();
+
+  // Helper to check if a single game is complete (meets win conditions)
+  const isGameCompleteScore = (g: GameScore): boolean => {
+    const maxScore = Math.max(g.teamAScore, g.teamBScore);
+    const minScore = Math.min(g.teamAScore, g.teamBScore);
+    return maxScore >= GAME_TARGET && maxScore - minScore >= 2;
+  };
+
+  // Check if we have at least one game with scores entered
+  const hasAnyScores = games.some(g => g.teamAScore > 0 || g.teamBScore > 0);
+
+  // Check if ALL games with scores are complete (valid for saving)
+  // A game is either empty (0-0) or complete - no partial/invalid scores allowed
+  const allGamesValid = games.every(g => {
+    const hasScore = g.teamAScore > 0 || g.teamBScore > 0;
+    // If no score entered, it's fine (empty game)
+    if (!hasScore) return true;
+    // If has score, must be complete
+    return isGameCompleteScore(g);
+  });
+
+  // Save is only enabled when we have scores AND all scored games are valid
+  const canSave = hasAnyScores && allGamesValid;
+
+  // Dynamic subtitle
+  const contextSubtitle = matchSubtitle || `${matchType === 'singles' ? 'Singles' : 'Doubles'} · Rated match`;
 
   if (!visible) return null;
 
@@ -316,41 +586,33 @@ export function LogMatchSheet({
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>Log match</Text>
-            {matchSubtitle && (
-              <Text style={styles.subtitle}>{matchSubtitle}</Text>
-            )}
+            <Text style={styles.contextSubtitle}>{contextSubtitle}</Text>
           </View>
 
-          {/* Game Tabs - show logged games */}
+          {/* Game Chips - show logged games (only when multiple games exist) */}
           {games.length > 1 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.gameTabsContainer}
-              contentContainerStyle={styles.gameTabsContent}
-            >
-              {games.map((game, index) => (
-                <Pressable
-                  key={index}
-                  style={[
-                    styles.gameTab,
-                    currentGameIndex === index && styles.gameTabActive,
-                  ]}
-                  onPress={() => selectGame(index)}
-                  onLongPress={() => removeGame(index)}
-                >
-                  <Text style={[
-                    styles.gameTabText,
-                    currentGameIndex === index && styles.gameTabTextActive,
-                  ]}>
-                    {game.teamAScore > 0 || game.teamBScore > 0
-                      ? `${game.teamAScore}-${game.teamBScore}`
-                      : `G${index + 1}`
-                    }
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+            <View style={styles.gameChipsWrapper}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.gameChipsContainer}
+                contentContainerStyle={styles.gameChipsContent}
+              >
+                {games.filter(isValidGameScore).map((game, index) => (
+                  <GameChip
+                    key={game.id}
+                    game={game}
+                    index={index}
+                    isActive={currentGameIndex === index}
+                    isMostRecent={index === mostRecentRecordedIndex}
+                    canDelete={games.length > 1}
+                    onSelect={() => selectGame(index)}
+                    onDelete={() => removeGame(index)}
+                  />
+                ))}
+              </ScrollView>
+              <Text style={styles.swipeHint}>Swipe left to delete</Text>
+            </View>
           )}
 
           {/* Score Input */}
@@ -398,52 +660,46 @@ export function LogMatchSheet({
             </View>
           </View>
 
-          {/* Game Target Selector - moved below score input */}
-          <View style={styles.targetRow}>
-            {([11, 15, 21] as GameTarget[]).map((target) => (
-              <Pressable
-                key={target}
-                style={[
-                  styles.targetPill,
-                  gameTarget === target && styles.targetPillActive,
-                ]}
-                onPress={() => {
-                  setGameTarget(target);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.targetPillText,
-                    gameTarget === target && styles.targetPillTextActive,
-                  ]}
-                >
-                  to {target}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
 
-          {/* Add Game Button - only show if current game has score and under 5 games */}
-          {hasValidCurrentScore && games.length < 5 && (
-            <Animated.View entering={FadeInDown.duration(200)}>
-              <Pressable style={styles.addGameButton} onPress={addGame}>
-                <Text style={styles.addGameButtonText}>+ Add another game</Text>
-              </Pressable>
-            </Animated.View>
+          {/* Add Game - text only, low emphasis */}
+          {games.length < 5 && (
+            <Pressable
+              style={styles.addGameButton}
+              onPress={isGameComplete ? addGame : undefined}
+              disabled={!isGameComplete}
+            >
+              <Text style={[
+                styles.addGameButtonText,
+                !isGameComplete && styles.addGameButtonTextDisabled,
+              ]}>
+                {isGameComplete ? 'Add another game' : 'Finish game to 11'}
+              </Text>
+            </Pressable>
           )}
 
-          {/* Actions */}
+          {/* Actions - Save is the only strong CTA */}
           <View style={styles.actions}>
-            <Pressable
-              style={styles.saveButton}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                handleSave();
-              }}
-            >
-              <Text style={styles.saveButtonText}>Save</Text>
-            </Pressable>
+            <Animated.View style={animatedSaveButtonStyle}>
+              <Pressable
+                style={[
+                  styles.saveButton,
+                  (!canSave || isSaving) && styles.saveButtonDisabled,
+                ]}
+                onPress={canSave && !isSaving ? handleSave : undefined}
+                disabled={!canSave || isSaving}
+              >
+                {isSaving ? (
+                  <View style={styles.savingContent}>
+                    <ActivityIndicator size="small" color={colors.white} />
+                    <Text style={styles.saveButtonText}>Saving...</Text>
+                  </View>
+                ) : (
+                  <Text style={[styles.saveButtonText, !canSave && styles.saveButtonTextDisabled]}>
+                    Save
+                  </Text>
+                )}
+              </Pressable>
+            </Animated.View>
 
             <Pressable style={styles.cancelButton} onPress={handleCancel}>
               <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -473,7 +729,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderTopLeftRadius: borderRadius.xxl,
     borderTopRightRadius: borderRadius.xxl,
-    paddingBottom: 34,
+    paddingBottom: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.25,
@@ -493,138 +749,131 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    paddingVertical: spacing.lg,
+    paddingVertical: spacing.md,
   },
   title: {
     color: colors.white,
     fontSize: 22,
     fontWeight: '600',
   },
-  subtitle: {
+  contextSubtitle: {
     color: colors.textMuted,
-    fontSize: 14,
+    fontSize: 13,
     marginTop: spacing.xs,
-  },
-  gameTabsContainer: {
-    maxHeight: 44,
-    marginBottom: spacing.lg,
-  },
-  gameTabsContent: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
-  },
-  gameTab: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    backgroundColor: colors.background,
-    borderRadius: borderRadius.md,
-    minWidth: 56,
-    alignItems: 'center',
-  },
-  gameTabActive: {
-    backgroundColor: colors.whiteMedium,
-  },
-  gameTabText: {
-    color: colors.textMuted,
-    fontSize: 14,
     fontWeight: '500',
   },
-  gameTabTextActive: {
-    color: colors.white,
+  gameChipsWrapper: {
+    position: 'relative',
+    marginBottom: spacing.sm,
+  },
+  gameChipsContainer: {
+    overflow: 'visible',
+  },
+  gameChipsContent: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  swipeHint: {
+    color: colors.textMuted,
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+    opacity: 0.6,
   },
   scoreSection: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.xl,
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.md,
+    marginTop: spacing.md,
   },
   scoreColumn: {
     alignItems: 'center',
+    flex: 1,
   },
   scoreLabel: {
     color: colors.textSecondary,
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
     marginBottom: spacing.md,
   },
   scoreControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
   },
   scoreButton: {
-    width: 48,
-    height: 48,
+    width: 56,
+    height: 56,
     backgroundColor: colors.background,
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.xl,
     alignItems: 'center',
     justifyContent: 'center',
+    // Subtle elevation
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   scoreButtonText: {
     color: colors.textSecondary,
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '300',
   },
   scoreValue: {
-    color: colors.textMuted,
-    fontSize: 20,
-    fontWeight: '500',
-    minWidth: 40,
+    color: colors.white,
+    fontSize: 32,
+    fontWeight: '600',
+    minWidth: 50,
     textAlign: 'center',
   },
-  targetRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  targetPill: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
-    borderColor: colors.borderMedium,
-  },
-  targetPillActive: {
-    borderColor: colors.accent,
-    backgroundColor: 'rgba(57, 255, 20, 0.08)',
-  },
-  targetPillText: {
-    color: colors.textMuted,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  targetPillTextActive: {
-    color: colors.accent,
-  },
+  // Add game - text only, low emphasis
   addGameButton: {
     alignSelf: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.lg,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.sm,
   },
   addGameButtonText: {
-    color: colors.accent,
-    fontSize: 14,
+    color: colors.textMuted,
+    fontSize: 13,
     fontWeight: '500',
+  },
+  addGameButtonTextDisabled: {
+    color: colors.textMuted,
+    opacity: 0.5,
   },
   actions: {
     paddingHorizontal: spacing.lg,
-    gap: spacing.md,
+    gap: spacing.xs,
   },
   saveButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: spacing.lg,
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.md + 2,
     borderRadius: borderRadius.lg,
     alignItems: 'center',
   },
+  saveButtonDisabled: {
+    backgroundColor: colors.textMuted,
+    opacity: 0.6,
+  },
   saveButtonText: {
-    color: colors.white,
+    color: colors.black,
     fontSize: 16,
     fontWeight: '600',
   },
+  saveButtonTextDisabled: {
+    color: colors.white,
+  },
+  savingContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   cancelButton: {
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     alignItems: 'center',
   },
   cancelButtonText: {
