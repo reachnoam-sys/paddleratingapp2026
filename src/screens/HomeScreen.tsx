@@ -723,24 +723,24 @@ export function HomeScreen() {
           <View style={styles.courtStatsCard}>
             <View style={styles.courtStatsRow}>
               <View style={styles.statItem}>
-                <Text style={styles.statCount}>
-                  {players.filter(p => p.status === 'Ready' || p.status === 'Available').length}
-                </Text>
-                <Text style={styles.statLabel}>ready</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statCount}>
+                <Text style={[styles.statCount, styles.statCountPlaying]}>
                   {players.filter(p => p.status.startsWith('On Court')).length}
                 </Text>
                 <Text style={styles.statLabel}>playing</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Text style={styles.statCount}>
-                  {players.filter(p => p.status === 'Waiting').length}
+                <Text style={[styles.statCount, styles.statCountReady]}>
+                  {players.filter(p => p.status === 'Ready' || p.status === 'Available' || p.status === 'Waiting').length}
                 </Text>
-                <Text style={styles.statLabel}>waiting</Text>
+                <Text style={styles.statLabel}>ready</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statCount, styles.statCountArriving]}>
+                  {2}
+                </Text>
+                <Text style={styles.statLabel}>arriving</Text>
               </View>
             </View>
           </View>
@@ -1150,10 +1150,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   statCount: {
-    color: colors.accent,
     fontWeight: '700',
     fontSize: 22,
     lineHeight: 26,
+  },
+  statCountPlaying: {
+    color: colors.accent,
+  },
+  statCountReady: {
+    color: '#FBBF24', // Amber/yellow for ready
+  },
+  statCountArriving: {
+    color: '#60A5FA', // Blue for arriving
   },
   statLabel: {
     color: colors.textSecondary,
