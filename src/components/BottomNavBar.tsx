@@ -5,24 +5,23 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-import { MapPin, Activity, Trophy, User } from 'lucide-react-native';
+import { Home, Activity, User } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { colors, spacing, borderRadius } from '../theme/colors';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-type TabId = 'courts' | 'activity' | 'leaderboard' | 'profile';
+type TabId = 'home' | 'activity' | 'profile';
 
 interface Tab {
   id: TabId;
   label: string;
-  icon: typeof MapPin;
+  icon: typeof Home;
 }
 
 const TABS: Tab[] = [
-  { id: 'courts', label: 'Courts', icon: MapPin },
+  { id: 'home', label: 'Home', icon: Home },
   { id: 'activity', label: 'Activity', icon: Activity },
-  { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
   { id: 'profile', label: 'Profile', icon: User },
 ];
 
@@ -72,9 +71,9 @@ function NavTab({
     >
       <View style={styles.iconContainer}>
         <Icon
-          size={20}
-          color={isActive ? colors.white : colors.textMuted}
-          strokeWidth={isActive ? 2 : 1.5}
+          size={22}
+          color={isActive ? colors.accent : colors.textMuted}
+          strokeWidth={isActive ? 2.2 : 1.8}
         />
         {badgeCount !== undefined && badgeCount > 0 && (
           <View style={styles.badge}>
@@ -122,18 +121,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.xl,
     marginHorizontal: spacing.lg,
-    backgroundColor: 'rgba(18, 18, 18, 0.92)',
-    borderRadius: 24,
-    borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(18, 18, 18, 0.95)',
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    // Premium shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 8,
   },
   iconContainer: {
     position: 'relative',
@@ -141,29 +146,31 @@ const styles = StyleSheet.create({
   badge: {
     position: 'absolute',
     top: -6,
-    right: -10,
-    minWidth: 16,
-    height: 16,
+    right: -12,
+    minWidth: 18,
+    height: 18,
     backgroundColor: colors.accent,
-    borderRadius: 8,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: 'rgba(18, 18, 18, 0.95)',
   },
   badgeText: {
     color: colors.black,
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
   },
   tabLabel: {
     color: colors.textMuted,
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '500',
-    marginTop: 3,
-    letterSpacing: 0.1,
+    marginTop: 4,
+    letterSpacing: 0.2,
   },
   tabLabelActive: {
-    color: colors.white,
+    color: colors.accent,
     fontWeight: '600',
   },
 });

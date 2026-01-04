@@ -11,10 +11,14 @@ import Animated, {
   withTiming,
   withSequence,
   withDelay,
+  withSpring,
+  withRepeat,
   Easing,
   runOnJS,
+  interpolateColor,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import * as Haptics from 'expo-haptics';
 import { Info, X } from 'lucide-react-native';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import type { Player } from '../types';
@@ -25,21 +29,52 @@ function eloToRating(elo: number): string {
   return Math.max(2.0, Math.min(5.5, rating)).toFixed(1);
 }
 
+/** Past match record against a specific opponent */
 interface MatchHistory {
   opponentName: string;
   wins: number;
   losses: number;
 }
 
+/**
+ * MatchReadyCard - Displays when a match is formed and ready to play
+ *
+ * Shows team avatars, matchup names, and provides tap-to-log functionality.
+ * Entire card is tappable to open score logging flow.
+ *
+ * @example
+ * ```tsx
+ * <MatchReadyCard
+ *   teamA={[currentUser, partner]}
+ *   teamB={[opponent1, opponent2]}
+ *   onSubmitScore={() => setShowScoreFlow(true)}
+ *   onRearrangeTeams={unlockTeams}
+ * />
+ * ```
+ */
 interface MatchReadyCardProps {
+  /** Your team (1-2 players) */
   teamA: Player[];
+  /** Opponent team (1-2 players) */
   teamB: Player[];
+  /** Called when user cancels the match */
   onCancelMatch?: () => void;
+  /** Called when user forfeits */
   onForfeit?: () => void;
+  /** Called when user taps card to log score - opens score flow */
   onSubmitScore?: () => void;
+  /** Called to unlock teams for rearrangement (doubles sessions) */
+  onRearrangeTeams?: () => void;
+  /** True if this is the final game of a session */
   isLastGame?: boolean;
+  /** True to play entrance animation (set false after first render) */
   isNewMatch?: boolean;
+  /** Historical record against opponents */
   matchHistory?: MatchHistory[];
+  /** Current team combo win/loss record (doubles sessions) */
+  comboRecord?: { wins: number; losses: number };
+  /** DEV ONLY: Force trigger the 5-minute nudge glow immediately */
+  __devTriggerNudge?: boolean;
 }
 
 // Compute match difficulty label based on rating difference
@@ -70,9 +105,12 @@ export function MatchReadyCard({
   onCancelMatch,
   onForfeit,
   onSubmitScore,
+  onRearrangeTeams,
   isLastGame = false,
   isNewMatch = true,
   matchHistory = [],
+  comboRecord,
+  __devTriggerNudge = false,
 }: MatchReadyCardProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [hasAnimated, setHasAnimated] = useState(false);
@@ -93,6 +131,13 @@ export function MatchReadyCard({
   const vsOpacity = useSharedValue(0);
   const detailsModalTranslateY = useSharedValue(0);
 
+  // Tap-to-log animation values
+  const tapScale = useSharedValue(1);
+  const tapHighlight = useSharedValue(0);
+
+  // 5-minute nudge glow
+  const nudgeGlow = useSharedValue(0);
+
   useEffect(() => {
     if (isNewMatch && !hasAnimated) {
       cardScale.value = withTiming(1, { duration: 400, easing: Easing.out(Easing.back(1.1)) });
@@ -108,15 +153,41 @@ export function MatchReadyCard({
     }
   }, [isNewMatch, hasAnimated]);
 
-  const animatedContainerStyle = useAnimatedStyle(() => ({
-    transform: [
-      { scale: cardScale.value },
-    ],
-    borderColor: `rgba(57, 255, 20, ${borderGlow.value * 0.6})`,
-    shadowColor: colors.accent,
-    shadowOpacity: borderGlow.value * 0.4,
-    shadowRadius: borderGlow.value * 20,
-  }));
+  // Start nudge glow animation
+  const startNudgeGlow = () => {
+    nudgeGlow.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1200 }),
+        withTiming(0.2, { duration: 1200 })
+      ),
+      -1, // infinite
+      true // reverse
+    );
+  };
+
+  // 5-minute nudge glow timer (or immediate if dev trigger)
+  useEffect(() => {
+    if (__devTriggerNudge) {
+      startNudgeGlow();
+      return;
+    }
+
+    const NUDGE_DELAY = 5 * 60 * 1000; // 5 minutes
+    const timer = setTimeout(startNudgeGlow, NUDGE_DELAY);
+    return () => clearTimeout(timer);
+  }, [__devTriggerNudge]);
+
+  const animatedContainerStyle = useAnimatedStyle(() => {
+    // Combine entrance glow with nudge glow (use whichever is active)
+    const glowIntensity = Math.max(borderGlow.value, nudgeGlow.value);
+    return {
+      // Transform is handled by animatedTapAreaStyle
+      borderColor: `rgba(57, 255, 20, ${glowIntensity * 0.6})`,
+      shadowColor: colors.accent,
+      shadowOpacity: glowIntensity * 0.4,
+      shadowRadius: glowIntensity * 20,
+    };
+  });
 
   const animatedVsStyle = useAnimatedStyle(() => ({
     opacity: vsOpacity.value,
@@ -140,9 +211,39 @@ export function MatchReadyCard({
     transform: [{ translateY: detailsModalTranslateY.value }],
   }));
 
+  // Tap-to-log animated styles (applied to container)
+  const animatedTapAreaStyle = useAnimatedStyle(() => ({
+    // Scale is combined with container's cardScale
+    transform: [{ scale: cardScale.value * tapScale.value }],
+  }));
+
+  // Handle tap to log score
+  const handleTapToLog = () => {
+    if (!onSubmitScore) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onSubmitScore();
+  };
+
+  // Tap gesture for premium feel
+  const tapGesture = Gesture.Tap()
+    .onBegin(() => {
+      if (!onSubmitScore) return;
+      tapScale.value = withSpring(0.97, { damping: 15, stiffness: 400 });
+      tapHighlight.value = withTiming(1, { duration: 100 });
+    })
+    .onFinalize((_, success) => {
+      tapScale.value = withSpring(1, { damping: 15, stiffness: 300 });
+      tapHighlight.value = withTiming(0, { duration: 200 });
+      if (success && onSubmitScore) {
+        runOnJS(handleTapToLog)();
+      }
+    });
+
   return (
     <>
-      <Animated.View style={[styles.container, animatedContainerStyle]}>
+      {/* Entire card is tappable for logging score */}
+      <GestureDetector gesture={tapGesture}>
+        <Animated.View style={[styles.container, animatedContainerStyle, animatedTapAreaStyle]}>
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <Animated.View
@@ -155,14 +256,38 @@ export function MatchReadyCard({
               >
                 {isLastGame ? 'Last game' : 'Match ready'}
               </Animated.Text>
+              {comboRecord && (comboRecord.wins > 0 || comboRecord.losses > 0) && (
+                <View style={styles.comboRecordBadge}>
+                  <Text style={styles.comboRecordText}>
+                    {comboRecord.wins}-{comboRecord.losses}
+                  </Text>
+                </View>
+              )}
             </View>
-            <Pressable
-              style={styles.infoButton}
-              onPress={() => setDetailsOpen(true)}
-              hitSlop={8}
-            >
-              <Info size={16} color={colors.textSubtle} />
-            </Pressable>
+            <View style={styles.headerRight}>
+              {onRearrangeTeams && (
+                <Pressable
+                  style={styles.rearrangeButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onRearrangeTeams();
+                  }}
+                  hitSlop={8}
+                >
+                  <Text style={styles.rearrangeText}>Swap</Text>
+                </Pressable>
+              )}
+              <Pressable
+                style={styles.infoButton}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setDetailsOpen(true);
+                }}
+                hitSlop={8}
+              >
+                <Info size={16} color={colors.textSubtle} />
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.teamsRow}>
@@ -195,7 +320,8 @@ export function MatchReadyCard({
           >
             {teamANames} vs {teamBNames}
           </Animated.Text>
-          {!isLastGame && (
+
+          {!isLastGame && !onSubmitScore && (
             <Animated.Text
               style={styles.helper}
               entering={FadeIn.delay(600).duration(300)}
@@ -204,6 +330,7 @@ export function MatchReadyCard({
             </Animated.Text>
           )}
         </Animated.View>
+      </GestureDetector>
 
       {/* Match Details Modal */}
       <Modal
@@ -299,9 +426,38 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    flex: 1,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   infoButton: {
     padding: spacing.xs,
+  },
+  rearrangeButton: {
+    backgroundColor: `${colors.white}10`,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.md,
+  },
+  rearrangeText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  comboRecordBadge: {
+    backgroundColor: `${colors.accent}20`,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.full,
+    marginLeft: spacing.xs,
+  },
+  comboRecordText: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '600',
   },
   statusDot: {
     width: 6,

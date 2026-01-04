@@ -14,11 +14,9 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 interface LookingForPartnerCardProps {
   player: Player;
-  onInvite: (player: Player) => void;
-  onChallengeToMatch?: (player: Player) => void;
+  onPlayerTap: (player: Player) => void;
   onCancelInvite?: (player: Player) => void;
   onRequestNextGame?: (player: Player) => void;
-  hasTeam?: boolean;
   isInvited?: boolean;
   isNextGameRequested?: boolean;
   index?: number;
@@ -26,11 +24,9 @@ interface LookingForPartnerCardProps {
 
 export function LookingForPartnerCard({
   player,
-  onInvite,
-  onChallengeToMatch,
+  onPlayerTap,
   onCancelInvite,
   onRequestNextGame,
-  hasTeam = false,
   isInvited = false,
   isNextGameRequested = false,
   index = 0
@@ -52,19 +48,18 @@ export function LookingForPartnerCard({
     scale.value = withSpring(1, { damping: 15, stiffness: 400 });
   };
 
-  // Get status display info - for solo players
-  const getStatusInfo = () => {
+  // Get status display config
+  const getStatusConfig = () => {
     if (isOnCourt) {
-      return { text: player.status, color: colors.textMuted };
+      return { text: player.status, color: colors.textMuted, showDot: true };
     }
     if (isWaiting) {
-      return { text: 'In queue', color: 'rgba(255, 193, 7, 0.8)' };
+      return { text: 'Waiting', color: '#D4A017', showDot: true };
     }
-    // Default status for solo players seeking a partner
-    return { text: 'Open to partner', color: 'rgba(147, 112, 219, 0.8)' };
+    return { text: 'Available', color: 'rgba(147, 112, 219, 0.9)', showDot: true };
   };
 
-  const statusInfo = getStatusInfo();
+  const statusConfig = getStatusConfig();
 
   // Render the appropriate CTA button
   const renderCTA = () => {
@@ -79,9 +74,9 @@ export function LookingForPartnerCard({
               onPressIn={handlePressIn}
               onPressOut={handlePressOut}
             >
-              <Text style={styles.requestedButtonText}>Requested ✓</Text>
+              <Text style={styles.requestedButtonText}>Requested</Text>
             </AnimatedPressable>
-            <Text style={styles.helperText}>They'll see it after the game.</Text>
+            <Text style={styles.helperText}>They'll see it after the game</Text>
           </View>
         );
       }
@@ -100,9 +95,9 @@ export function LookingForPartnerCard({
     // Invited state
     if (isInvited) {
       return (
-        <View style={styles.waitingButtonContainer}>
-          <View style={styles.waitingButton}>
-            <Text style={styles.waitingButtonText}>Waiting for response</Text>
+        <View style={styles.invitedButtonContainer}>
+          <View style={styles.invitedButton}>
+            <Text style={styles.invitedButtonText}>Waiting for response</Text>
           </View>
           {onCancelInvite && (
             <Pressable
@@ -116,29 +111,15 @@ export function LookingForPartnerCard({
       );
     }
 
-    // Has team - show invite to play (challenge)
-    if (hasTeam) {
-      return (
-        <AnimatedPressable
-          style={[styles.challengeButton, animatedButtonStyle]}
-          onPress={() => onChallengeToMatch?.(player)}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
-        >
-          <Text style={styles.challengeButtonText}>Invite to play</Text>
-        </AnimatedPressable>
-      );
-    }
-
-    // Default - Partner up
+    // Default - opens action sheet to choose partner up or singles
     return (
       <AnimatedPressable
-        style={[styles.partnerButton, animatedButtonStyle]}
-        onPress={() => onInvite(player)}
+        style={[styles.playButton, animatedButtonStyle]}
+        onPress={() => onPlayerTap(player)}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
       >
-        <Text style={styles.partnerButtonText}>Partner up</Text>
+        <Text style={styles.playButtonText}>Play with {player.name.split(' ')[0]}</Text>
       </AnimatedPressable>
     );
   };
@@ -151,31 +132,22 @@ export function LookingForPartnerCard({
         isOnCourt && styles.containerOnCourt,
       ]}
     >
-      {/* Status badge - top right */}
-      <View style={styles.statusBadge}>
-        <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
-        <Text style={[styles.statusText, { color: statusInfo.color }]}>
-          {statusInfo.text}
-        </Text>
-      </View>
-
       <View style={styles.content}>
+        {/* Left side: Avatar + Name + Status */}
         <Image source={{ uri: player.avatar }} style={styles.avatar} />
-        <View style={styles.info}>
-          <Text style={styles.name}>{player.name}</Text>
-          {isWaiting && (
-            <View style={styles.waitingTag}>
-              <Text style={styles.waitingTagText}>Waiting</Text>
-            </View>
-          )}
+        <View style={styles.playerInfo}>
+          <Text style={styles.name} numberOfLines={1}>{player.name}</Text>
+          <View style={styles.statusRow}>
+            <View style={[styles.statusDot, { backgroundColor: statusConfig.color }]} />
+            <Text style={[styles.statusText, { color: statusConfig.color }]}>
+              {statusConfig.text}
+            </Text>
+          </View>
         </View>
-        {/* Hero rating */}
+
+        {/* Right side: Hero rating */}
         <Text style={styles.heroRating}>{eloToRating(player.elo)}</Text>
       </View>
-
-      {hasTeam && !isOnCourt && !isInvited && (
-        <Text style={styles.waitingStatus}>Needs 1 more to start</Text>
-      )}
 
       {renderCTA()}
     </Animated.View>
@@ -187,165 +159,127 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: borderRadius.xl,
     padding: spacing.lg,
-    borderWidth: 0.5,
+    borderWidth: 1,
     borderColor: colors.borderLight,
   },
   containerOnCourt: {
-    opacity: 0.6,
+    opacity: 0.55,
   },
-  statusBadge: {
-    position: 'absolute',
-    top: spacing.md,
-    right: spacing.lg,
+  content: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    marginBottom: spacing.lg,
+  },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    marginRight: spacing.md,
+  },
+  playerInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  name: {
+    color: colors.white,
+    fontWeight: '600',
+    fontSize: 17,
+    marginBottom: 4,
+    letterSpacing: -0.2,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   statusDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
+    marginRight: 6,
   },
   statusText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  content: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.lg,
-    marginTop: spacing.xs,
-  },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: borderRadius.full,
-  },
-  info: {
-    flex: 1,
-  },
-  name: {
-    color: colors.white,
-    fontWeight: '500',
-    fontSize: 16,
-  },
-  waitingTag: {
-    marginTop: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    backgroundColor: 'rgba(255, 193, 7, 0.15)',
-    borderRadius: borderRadius.sm,
-    alignSelf: 'flex-start',
-  },
-  waitingTagText: {
-    color: 'rgba(255, 193, 7, 0.9)',
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '500',
   },
   heroRating: {
     color: colors.white,
-    fontWeight: '500',
-    fontSize: 28,
-    letterSpacing: -0.5,
+    fontWeight: '600',
+    fontSize: 36,
+    letterSpacing: -1,
+    marginLeft: spacing.md,
   },
-  partnerButton: {
+  playButton: {
     backgroundColor: colors.whiteSubtle,
     borderWidth: 1,
     borderColor: colors.whiteMedium,
-    paddingVertical: spacing.md,
+    paddingVertical: 14,
     borderRadius: borderRadius.lg,
     alignItems: 'center',
-    height: 48,
-    justifyContent: 'center',
   },
-  partnerButtonText: {
+  playButtonText: {
     color: colors.white,
-    fontWeight: '500',
-    fontSize: 15,
-  },
-  challengeButton: {
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.lg,
-    alignItems: 'center',
-    height: 48,
-    justifyContent: 'center',
-  },
-  challengeButtonText: {
-    color: colors.black,
     fontWeight: '600',
     fontSize: 15,
   },
   requestNextButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    paddingVertical: spacing.md,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    paddingVertical: 14,
     borderRadius: borderRadius.lg,
     alignItems: 'center',
-    height: 48,
-    justifyContent: 'center',
   },
   requestNextButtonText: {
     color: colors.white,
-    fontWeight: '500',
+    fontWeight: '600',
     fontSize: 15,
   },
   requestedButton: {
     backgroundColor: 'rgba(57, 255, 20, 0.10)',
-    paddingVertical: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(57, 255, 20, 0.15)',
+    paddingVertical: 14,
     borderRadius: borderRadius.lg,
     alignItems: 'center',
-    height: 48,
-    justifyContent: 'center',
   },
   requestedButtonText: {
-    color: 'rgba(57, 255, 20, 0.7)',
-    fontWeight: '500',
+    color: 'rgba(57, 255, 20, 0.85)',
+    fontWeight: '600',
     fontSize: 15,
   },
   helperText: {
     color: colors.textMuted,
     fontSize: 12,
     textAlign: 'center',
-    marginTop: spacing.xs,
+    marginTop: 8,
   },
-  waitingButtonContainer: {
+  invitedButtonContainer: {
     flexDirection: 'row',
     gap: spacing.sm,
   },
-  waitingButton: {
+  invitedButton: {
     flex: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    paddingVertical: spacing.md,
+    paddingVertical: 14,
     borderRadius: borderRadius.lg,
     alignItems: 'center',
-    height: 48,
-    justifyContent: 'center',
   },
-  waitingButtonText: {
+  invitedButtonText: {
     color: colors.textMuted,
     fontWeight: '500',
     fontSize: 15,
   },
   cancelButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingVertical: 14,
+    paddingHorizontal: spacing.xl,
     borderRadius: borderRadius.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    height: 48,
   },
   cancelButtonText: {
     color: colors.textMuted,
     fontWeight: '500',
     fontSize: 15,
-  },
-  waitingStatus: {
-    color: colors.textMuted,
-    fontSize: 12,
-    marginBottom: spacing.sm,
   },
 });

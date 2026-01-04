@@ -10,10 +10,22 @@ interface JoinedPlayerCardProps {
   status: 'invited' | 'accepted';
   onCancelInvite?: (player: Player) => void;
   index?: number;
+  playersNeeded?: number;
 }
 
-export function JoinedPlayerCard({ player, status, onCancelInvite, index = 0 }: JoinedPlayerCardProps) {
+export function JoinedPlayerCard({ player, status, onCancelInvite, index = 0, playersNeeded = 1 }: JoinedPlayerCardProps) {
   const isInvited = status === 'invited';
+
+  // Get status text based on state
+  const getStatusText = () => {
+    if (isInvited) {
+      return 'Invite sent';
+    }
+    if (playersNeeded > 0) {
+      return `Waiting for ${playersNeeded === 1 ? 'one more' : playersNeeded + ' more'}...`;
+    }
+    return 'Ready to play';
+  };
 
   return (
     <Animated.View
@@ -26,7 +38,7 @@ export function JoinedPlayerCard({ player, status, onCancelInvite, index = 0 }: 
           <Text style={styles.name}>{player.name}</Text>
           <Text style={styles.elo}>{eloToRating(player.elo)}</Text>
           <Text style={[styles.status, isInvited && styles.statusInvited]}>
-            {isInvited ? 'Invite sent' : 'Joined game'}
+            {getStatusText()}
           </Text>
         </View>
         {isInvited && onCancelInvite && (

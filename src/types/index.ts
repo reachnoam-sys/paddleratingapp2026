@@ -97,3 +97,44 @@ export interface CourtInvite {
   referrerId?: string; // User who shared the link
   timestamp?: number;
 }
+
+// Team combo identifier (sorted player IDs joined by dash)
+export type TeamComboId = string;
+
+// Track win/loss record for a specific team combination
+export interface TeamComboRecord {
+  id: TeamComboId;
+  player1Id: string;
+  player2Id: string;
+  wins: number;
+  losses: number;
+}
+
+// Individual game record within a doubles session
+export interface SessionGameRecord {
+  id: string;
+  teamAPlayerIds: [string, string];
+  teamBPlayerIds: [string, string];
+  teamAScore: number;
+  teamBScore: number;
+  playedAt: number;
+}
+
+// Session with 4 fixed players who can swap partners between games
+export interface DoublesSession {
+  id: string;
+  courtId: string;
+  courtName: string;
+  startedAt: number;
+  players: Player[]; // Always 4 players
+  teamA: [string, string]; // Player IDs for team A
+  teamB: [string, string]; // Player IDs for team B
+  phase: 'arranging' | 'ready' | 'completed';
+  games: SessionGameRecord[];
+  comboRecords: TeamComboRecord[];
+}
+
+// Helper to create consistent team combo ID (alphabetically sorted)
+export function createTeamComboId(player1Id: string, player2Id: string): TeamComboId {
+  return [player1Id, player2Id].sort().join('-');
+}

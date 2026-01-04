@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Image } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { X } from 'lucide-react-native';
+import { X, Search } from 'lucide-react-native';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import { eloToRating } from '../utils';
 import type { Player } from '../types';
@@ -14,6 +14,7 @@ interface PairCardProps {
   mode: 'doubles' | 'singles';
   status: PairStatus;
   onUnpair: () => void;
+  onFindOpponents?: () => void;
   onSwitchToSingles?: () => void;
 }
 
@@ -22,11 +23,19 @@ export function PairCard({
   mode,
   status,
   onUnpair,
+  onFindOpponents,
   onSwitchToSingles,
 }: PairCardProps) {
   const handleUnpair = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onUnpair();
+  };
+
+  const handleFindOpponents = () => {
+    if (onFindOpponents) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      onFindOpponents();
+    }
   };
 
   const handleSwitchToSingles = () => {
@@ -37,71 +46,144 @@ export function PairCard({
   };
 
   const rating = eloToRating(player.elo);
-  const firstName = player.name.split(' ')[0];
 
   return (
-    <Animated.View entering={FadeIn.duration(150)} style={styles.container}>
-      {/* Inline text row */}
-      <Text style={styles.pairText}>
-        Paired with{' '}
-        <Text style={styles.playerName}>{firstName}</Text>
-        <Text style={styles.rating}> ({rating})</Text>
-      </Text>
-
-      {/* Compact action buttons */}
-      <View style={styles.actions}>
-        {mode === 'doubles' && status === 'paired' && onSwitchToSingles && (
-          <Pressable style={styles.actionButton} onPress={handleSwitchToSingles}>
-            <Text style={styles.actionText}>Singles</Text>
-          </Pressable>
-        )}
-        <Pressable style={styles.actionButton} onPress={handleUnpair}>
-          <X size={12} color={colors.textMuted} />
-          <Text style={styles.actionText}>Unpair</Text>
+    <Animated.View entering={FadeIn.duration(200)} style={styles.container}>
+      {/* Header with status indicator */}
+      <View style={styles.header}>
+        <View style={styles.statusIndicator}>
+          <View style={styles.statusDot} />
+          <Text style={styles.statusText}>PARTNERED</Text>
+        </View>
+        <Pressable
+          style={styles.dismissButton}
+          onPress={handleUnpair}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <X size={18} color={colors.textMuted} />
         </Pressable>
       </View>
+
+      {/* Partner info with larger avatar */}
+      <View style={styles.partnerInfo}>
+        <Image source={{ uri: player.avatar }} style={styles.avatar} />
+        <View style={styles.partnerDetails}>
+          <Text style={styles.partnerName}>{player.name}</Text>
+          <Text style={styles.partnerRating}>{rating} Rating</Text>
+        </View>
+      </View>
+
+      {/* Find Opponents button */}
+      {status === 'paired' && onFindOpponents && (
+        <Pressable
+          style={({ pressed }) => [
+            styles.findOpponentsButton,
+            pressed && styles.findOpponentsButtonPressed,
+          ]}
+          onPress={handleFindOpponents}
+        >
+          <Search size={18} color={colors.black} />
+          <Text style={styles.findOpponentsText}>Find Opponents</Text>
+        </Pressable>
+      )}
+
+      {/* Subtle singles option */}
+      {status === 'paired' && onSwitchToSingles && (
+        <Pressable style={styles.singlesLink} onPress={handleSwitchToSingles}>
+          <Text style={styles.singlesLinkText}>Play singles instead?</Text>
+        </Pressable>
+      )}
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: `${colors.accent}25`,
+  },
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: borderRadius.lg,
+    marginBottom: spacing.md,
   },
-  pairText: {
-    color: colors.textSecondary,
+  statusIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.accent,
+  },
+  statusText: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  dismissButton: {
+    padding: spacing.xs,
+    marginRight: -spacing.xs,
+  },
+  partnerInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderWidth: 2,
+    borderColor: colors.borderLight,
+  },
+  partnerDetails: {
+    flex: 1,
+  },
+  partnerName: {
+    color: colors.white,
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  partnerRating: {
+    color: colors.textMuted,
     fontSize: 14,
   },
-  playerName: {
-    color: colors.white,
+  findOpponentsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.sm,
+  },
+  findOpponentsButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.98 }],
+  },
+  findOpponentsText: {
+    color: colors.black,
+    fontSize: 16,
     fontWeight: '600',
   },
-  rating: {
-    color: colors.textMuted,
-  },
-  actions: {
-    flexDirection: 'row',
+  singlesLink: {
     alignItems: 'center',
-    gap: spacing.sm,
+    paddingVertical: spacing.sm,
   },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderRadius: borderRadius.md,
-  },
-  actionText: {
+  singlesLinkText: {
     color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 14,
   },
 });

@@ -72,7 +72,9 @@ export function TeamCard({
       </View>
 
       <View style={styles.teamNameSection}>
-        <Text style={styles.teamName}>{team.name}</Text>
+        <Text style={styles.teamName}>
+          {team.player1.name.split(' ')[0]} + {team.player2.name.split(' ')[0]}
+        </Text>
       </View>
 
       <View style={styles.playersGrid}>

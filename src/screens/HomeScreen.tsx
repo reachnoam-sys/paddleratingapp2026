@@ -30,6 +30,7 @@ import {
   LogMatchGrabHandle,
   PendingChallengeCard,
   ProfileSidebar,
+  ProfileScreen,
   BottomNavBar,
   StatusSelectorModal,
   InviteBottomSheet,
@@ -40,13 +41,16 @@ import {
   ActivityScreen,
   PairCard,
   SwitchToSinglesSheet,
+  TeamArrangementCard,
+  PlayerActionSheet,
+  TeamPreviewSheet,
 } from '../components';
 import type { PresenceStatus, MatchType, PairStatus } from '../components';
 import { colors, spacing, borderRadius } from '../theme/colors';
 import { useNearbyPlayers, useTeams, useCurrentUser } from '../hooks';
 import { eloToRating, getNewElo } from '../utils';
 import type { Player, Team, GameMode, PlayPreference } from '../types';
-import { useMatchStore, playersToParticipants, Match } from '../store';
+import { useMatchStore, playersToParticipants, Match, useSessionStore } from '../store';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -78,14 +82,18 @@ type DevSessionState = 'NONE' | 'MATCH_READY' | 'RECENT_MATCH' | 'LOG_PROMPT_OPE
 function DevPanel({
   sessionState,
   minutesSinceFormed,
+  nudgeGlowEnabled,
   onSessionStateChange,
   onMinutesChange,
+  onNudgeGlowToggle,
   onClose,
 }: {
   sessionState: DevSessionState;
   minutesSinceFormed: number;
+  nudgeGlowEnabled: boolean;
   onSessionStateChange: (state: DevSessionState) => void;
   onMinutesChange: (minutes: number) => void;
+  onNudgeGlowToggle: () => void;
   onClose: () => void;
 }) {
   const states: DevSessionState[] = ['NONE', 'MATCH_READY', 'RECENT_MATCH', 'LOG_PROMPT_OPEN'];
@@ -129,6 +137,18 @@ function DevPanel({
               </Text>
             </Pressable>
           ))}
+        </View>
+
+        <Text style={devStyles.label}>5-Min Nudge Glow</Text>
+        <View style={devStyles.optionsRow}>
+          <Pressable
+            style={[devStyles.option, nudgeGlowEnabled && devStyles.optionActive]}
+            onPress={onNudgeGlowToggle}
+          >
+            <Text style={[devStyles.optionText, nudgeGlowEnabled && devStyles.optionTextActive]}>
+              {nudgeGlowEnabled ? 'ON' : 'OFF'}
+            </Text>
+          </Pressable>
         </View>
       </View>
     </View>
@@ -227,7 +247,7 @@ export function HomeScreen() {
   const [isNewMatchAnimation, setIsNewMatchAnimation] = useState(true);
   const [cooldownTeamId, setCooldownTeamId] = useState<string | null>(null);
   const [showProfileSidebar, setShowProfileSidebar] = useState(false);
-  const [activeTab, setActiveTab] = useState<'courts' | 'activity' | 'leaderboard' | 'profile'>('courts');
+  const [activeTab, setActiveTab] = useState<'home' | 'activity' | 'profile'>('home');
   // Top-level presence status (single source of truth)
   const [presenceStatus, setPresenceStatus] = useState<PresenceStatus>('not_checked_in');
   const [autoMatchEnabled, setAutoMatchEnabled] = useState(true);
@@ -239,8 +259,12 @@ export function HomeScreen() {
   const [showMatchTypeSheet, setShowMatchTypeSheet] = useState(false);
   const [matchTypeSheetPlayer, setMatchTypeSheetPlayer] = useState<Player | null>(null);
   const [lastMatchTypeSelection, setLastMatchTypeSelection] = useState<MatchType>('doubles');
+  // Player action sheet state (for solo players)
+  const [actionSheetPlayer, setActionSheetPlayer] = useState<Player | null>(null);
   // Switch to singles confirmation sheet
   const [showSwitchToSinglesSheet, setShowSwitchToSinglesSheet] = useState(false);
+  // Team preview sheet state
+  const [showTeamPreview, setShowTeamPreview] = useState(false);
   // Derived from presenceStatus for backward compatibility
   const isCheckedIn = presenceStatus !== 'not_checked_in';
   const isAvailable = presenceStatus === 'available';
@@ -252,6 +276,7 @@ export function HomeScreen() {
   const [showDevPanel, setShowDevPanel] = useState(false);
   const [devSessionState, setDevSessionState] = useState<DevSessionState>('NONE');
   const [devMinutesSinceFormed, setDevMinutesSinceFormed] = useState(0);
+  const [devNudgeGlowEnabled, setDevNudgeGlowEnabled] = useState(false);
 
   // Match result overlay state (legacy - kept for old result overlay)
   const [showMatchResult, setShowMatchResult] = useState(false);
@@ -272,6 +297,17 @@ export function HomeScreen() {
 
   // Get match store data
   const { pendingConfirmationCount, createMatch } = useMatchStore();
+
+  // Get session store for doubles team swapping
+  const {
+    session: doublesSession,
+    startSession,
+    updateArrangement,
+    lockTeams,
+    unlockTeams,
+    recordGame,
+    endSession,
+  } = useSessionStore();
 
   // Use custom hooks for data fetching
   const { user, currentTeam, invitePartner, leaveTeam } = useCurrentUser();
@@ -378,6 +414,32 @@ export function HomeScreen() {
       : null;
   const effectivePartner = isDevMode ? DEV_FIXTURE_PARTNER : currentTeam?.partner;
 
+  // Start a doubles session when match is ready with 4 players
+  React.useEffect(() => {
+    if (
+      isMatchReady &&
+      gameMode === 'doubles' &&
+      effectiveUser &&
+      effectivePartner &&
+      opponentPlayers.length === 2 &&
+      !doublesSession
+    ) {
+      const allPlayers = [effectiveUser, effectivePartner, ...opponentPlayers];
+      startSession({
+        courtId: 'lincoln-park',
+        courtName: 'Lincoln Park Courts',
+        players: allPlayers,
+      });
+    }
+  }, [isMatchReady, gameMode, effectiveUser, effectivePartner, opponentPlayers, doublesSession, startSession]);
+
+  // Clean up session when match is cancelled
+  React.useEffect(() => {
+    if (!isMatchReady && doublesSession) {
+      endSession();
+    }
+  }, [isMatchReady, doublesSession, endSession]);
+
   // For display in header
   const currentUserDisplay = user
     ? {
@@ -435,24 +497,6 @@ export function HomeScreen() {
     setTimeout(() => {
       setChallengedTeam(null);
       setAcceptedTeam(team);
-    }, 2000);
-  };
-
-  const handleInvitePartner = async (player: Player) => {
-    await invitePartner(player);
-  };
-
-  const handleChallengeToMatch = (player: Player) => {
-    console.log('Invite to play:', player.name);
-    setInvitedPlayerIds(prev => new Set(prev).add(player.id));
-    // Simulate player accepting after 2 seconds (for demo purposes)
-    setTimeout(() => {
-      setInvitedPlayerIds(prev => {
-        const next = new Set(prev);
-        next.delete(player.id);
-        return next;
-      });
-      setAcceptedPlayerIds(prev => new Set(prev).add(player.id));
     }, 2000);
   };
 
@@ -565,6 +609,14 @@ export function HomeScreen() {
       games: games.map(g => ({ teamAScore: g.teamAScore, teamBScore: g.teamBScore })),
       currentUserId: user?.id ?? 'current-user',
     });
+
+    // If in a doubles session, record the game to update combo records
+    // This will transition back to 'arranging' phase for team swapping
+    if (doublesSession && games.length > 0) {
+      // Record the most recent game (last in array if multiple)
+      const lastGame = games[games.length - 1];
+      recordGame(lastGame.teamAScore, lastGame.teamBScore);
+    }
 
     // Store match and show submitted modal
     setSubmittedMatch(match);
@@ -694,6 +746,24 @@ export function HomeScreen() {
     });
   };
 
+  // Handle solo player tap - opens action sheet
+  const handleSoloPlayerTap = (player: Player) => {
+    setActionSheetPlayer(player);
+  };
+
+  // Handle partner up from action sheet
+  const handleActionSheetPartnerUp = (player: Player) => {
+    setActionSheetPlayer(null);
+    invitePartner(player);
+  };
+
+  // Handle play singles from action sheet
+  const handleActionSheetPlaySingles = (player: Player) => {
+    setActionSheetPlayer(null);
+    setGameMode('singles');
+    handleChallengeSingles(player);
+  };
+
   const isLoading = gameMode === 'singles' ? playersLoading : teamsLoading;
 
   return (
@@ -705,6 +775,7 @@ export function HomeScreen() {
         locationName="Lincoln Park Courts"
         partnerAvatar={isDevMode ? DEV_FIXTURE_PARTNER.avatar : currentTeam?.partner.avatar}
         onLeaveTeam={handleLeaveTeam}
+        onTeamPress={() => setShowTeamPreview(true)}
         isMatchInProgress={!!isMatchReady}
         onCancelMatch={handleCancelMatch}
         onLongPressLocation={__DEV__ ? () => setShowDevPanel(true) : undefined}
@@ -807,6 +878,7 @@ export function HomeScreen() {
                       onSubmitScore={handleLogScores}
                       isLastGame={isLastGame}
                       isNewMatch={isNewMatchAnimation}
+                      __devTriggerNudge={devNudgeGlowEnabled}
                     />
 
                     {/* Grab handle for swipe-up log drawer */}
@@ -835,8 +907,20 @@ export function HomeScreen() {
 
             {gameMode === 'doubles' && (
               <View style={styles.cardsContainer}>
-                {/* Match Ready - show ONLY this when match is ready */}
-                {isMatchReady && effectiveUser && effectivePartner && (
+                {/* Team Arrangement - show when session is in arranging phase */}
+                {isMatchReady && doublesSession?.phase === 'arranging' && (
+                  <View style={styles.matchReadyContainer}>
+                    <TeamArrangementCard
+                      session={doublesSession}
+                      onArrangementChange={updateArrangement}
+                      onLockTeams={lockTeams}
+                      currentUserId={user?.id ?? 'current-user'}
+                    />
+                  </View>
+                )}
+
+                {/* Match Ready - show when session is in ready phase (teams locked) */}
+                {isMatchReady && doublesSession?.phase === 'ready' && effectiveUser && effectivePartner && (
                   <View style={styles.matchReadyContainer}>
                     <MatchReadyCard
                       teamA={[effectiveUser, effectivePartner]}
@@ -846,6 +930,8 @@ export function HomeScreen() {
                       onSubmitScore={handleLogScores}
                       isLastGame={isLastGame}
                       isNewMatch={isNewMatchAnimation}
+                      onRearrangeTeams={unlockTeams}
+                      __devTriggerNudge={devNudgeGlowEnabled}
                     />
 
                     {/* Grab handle for swipe-up log drawer */}
@@ -867,6 +953,27 @@ export function HomeScreen() {
                           <Text style={styles.logPromptSecondaryText}>Skip and play again</Text>
                         </Pressable>
                       </View>
+                    )}
+                  </View>
+                )}
+
+                {/* Fallback: Match Ready without session (legacy behavior) */}
+                {isMatchReady && !doublesSession && effectiveUser && effectivePartner && (
+                  <View style={styles.matchReadyContainer}>
+                    <MatchReadyCard
+                      teamA={[effectiveUser, effectivePartner]}
+                      teamB={opponentPlayers}
+                      onCancelMatch={handleCancelMatch}
+                      onForfeit={handleCancelMatch}
+                      onSubmitScore={handleLogScores}
+                      isLastGame={isLastGame}
+                      isNewMatch={isNewMatchAnimation}
+                      __devTriggerNudge={devNudgeGlowEnabled}
+                    />
+
+                    {/* Grab handle for swipe-up log drawer */}
+                    {!showLogPrompt && (
+                      <LogMatchGrabHandle onPress={() => setShowScoreFlow(true)} />
                     )}
                   </View>
                 )}
@@ -921,21 +1028,27 @@ export function HomeScreen() {
                         <Text style={[styles.sectionTitle, { marginTop: hasPendingChallenge ? spacing.xxl : 0 }]}>Setting Up</Text>
                         {lookingForPartner
                           .filter(p => invitedPlayerIds.has(p.id) || acceptedPlayerIds.has(p.id))
-                          .map((player, index) => (
-                            <JoinedPlayerCard
-                              key={player.id}
-                              player={player}
-                              status={acceptedPlayerIds.has(player.id) ? 'accepted' : 'invited'}
-                              onCancelInvite={handleCancelInvite}
-                              index={index}
-                            />
-                          ))}
+                          .map((player, index) => {
+                            // For doubles: need 2 opponents total, calculate how many more needed
+                            const acceptedCount = acceptedPlayerIds.size;
+                            const playersNeeded = Math.max(0, 2 - acceptedCount);
+                            return (
+                              <JoinedPlayerCard
+                                key={player.id}
+                                player={player}
+                                status={acceptedPlayerIds.has(player.id) ? 'accepted' : 'invited'}
+                                onCancelInvite={handleCancelInvite}
+                                index={index}
+                                playersNeeded={playersNeeded}
+                              />
+                            );
+                          })}
                       </>
                     )}
 
                     {/* Teams Ready */}
                     <Text style={[styles.sectionTitle, { marginTop: (hasPendingChallenge || (currentTeam && lookingForPartner.some(p => invitedPlayerIds.has(p.id) || acceptedPlayerIds.has(p.id)))) ? spacing.xxl : 0 }]}>
-                      Teams Ready
+                      Teams ready
                     </Text>
                     {teams.map((team, index) => (
                       <TeamCard
@@ -951,7 +1064,7 @@ export function HomeScreen() {
 
                     {/* Solo Players */}
                     <Text style={[styles.sectionTitle, { marginTop: spacing.xxl }]}>
-                      Solo Players
+                      Solo players
                     </Text>
                     {lookingForPartner
                       .filter(p => !acceptedPlayerIds.has(p.id) && !invitedPlayerIds.has(p.id))
@@ -959,11 +1072,9 @@ export function HomeScreen() {
                         <LookingForPartnerCard
                           key={player.id}
                           player={player}
-                          onInvite={handleInvitePartner}
-                          onChallengeToMatch={handleChallengeToMatch}
+                          onPlayerTap={handleSoloPlayerTap}
                           onCancelInvite={handleCancelInvite}
                           onRequestNextGame={handleRequestNextGame}
-                          hasTeam={!!currentTeam}
                           isInvited={false}
                           isNextGameRequested={nextGameRequestedIds.has(player.id)}
                           index={teams.length + index}
@@ -995,6 +1106,7 @@ export function HomeScreen() {
         <DevPanel
           sessionState={devSessionState}
           minutesSinceFormed={devMinutesSinceFormed}
+          nudgeGlowEnabled={devNudgeGlowEnabled}
           onSessionStateChange={(state) => {
             setDevSessionState(state);
             if (state === 'NONE') {
@@ -1002,6 +1114,7 @@ export function HomeScreen() {
             }
           }}
           onMinutesChange={setDevMinutesSinceFormed}
+          onNudgeGlowToggle={() => setDevNudgeGlowEnabled(prev => !prev)}
           onClose={() => setShowDevPanel(false)}
         />
       )}
@@ -1023,9 +1136,6 @@ export function HomeScreen() {
         activeTab={activeTab}
         onTabChange={(tab) => {
           setActiveTab(tab);
-          if (tab === 'profile') {
-            setShowProfileSidebar(true);
-          }
         }}
         activityBadgeCount={pendingConfirmationCount}
       />
@@ -1072,6 +1182,34 @@ export function HomeScreen() {
         }}
       />
 
+      {/* Player Action Sheet - for solo player intent selection */}
+      <PlayerActionSheet
+        visible={actionSheetPlayer !== null}
+        player={actionSheetPlayer}
+        onClose={() => setActionSheetPlayer(null)}
+        onPartnerUp={handleActionSheetPartnerUp}
+        onPlaySingles={handleActionSheetPlaySingles}
+      />
+
+      {/* Team Preview Sheet - premium team overview */}
+      <TeamPreviewSheet
+        visible={showTeamPreview}
+        user={user ? { ...user, status: 'Ready' as const } : null}
+        partner={currentTeam?.partner ?? null}
+        onClose={() => setShowTeamPreview(false)}
+        onPlaySingles={() => {
+          setShowTeamPreview(false);
+          if (currentTeam) {
+            handleGameModeChange('singles');
+          }
+        }}
+        onLeaveTeam={() => {
+          setShowTeamPreview(false);
+          handleLeaveTeam();
+        }}
+        teamStats={{ wins: 3, losses: 1, streak: 2 }}
+      />
+
       {/* Invite Bottom Sheet */}
       <InviteBottomSheet
         visible={showInviteSheet}
@@ -1103,12 +1241,30 @@ export function HomeScreen() {
         onViewActivity={handleMatchSubmittedViewActivity}
       />
 
-      {/* Activity Screen - shown when activity tab is active */}
+      {/* Activity Screen - full screen overlay */}
       {activeTab === 'activity' && (
         <ActivityScreen
-          onClose={() => setActiveTab('courts')}
+          onClose={() => setActiveTab('home')}
+          onSwipeToHome={() => setActiveTab('home')}
+          onSwipeToProfile={() => setActiveTab('profile')}
           scrollToMatchId={scrollToMatchId}
           onClearScrollTarget={() => setScrollToMatchId(null)}
+        />
+      )}
+
+      {/* Profile Screen - full screen overlay */}
+      {activeTab === 'profile' && (
+        <ProfileScreen
+          onClose={() => setActiveTab('home')}
+          onSwipeToActivity={() => setActiveTab('activity')}
+          user={user}
+          singlesRating={user?.elo}
+          doublesRating={user?.elo ? Math.round(user.elo * 1.05) : undefined}
+          onUpdateName={(name) => console.log('Update name:', name)}
+          onUpdateAvatar={(uri) => console.log('Update avatar:', uri)}
+          onMatchHistory={() => {
+            setActiveTab('activity');
+          }}
         />
       )}
     </SafeAreaView>
@@ -1172,7 +1328,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   pairCardContainer: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.xl,
   },
   checkInContainer: {
     alignItems: 'center',
@@ -1267,11 +1423,10 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   sectionTitle: {
-    color: colors.textMuted,
-    fontWeight: '500',
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    color: colors.textSecondary,
+    fontWeight: '600',
+    fontSize: 13,
+    letterSpacing: 0.3,
     marginBottom: spacing.md,
   },
   loadingContainer: {

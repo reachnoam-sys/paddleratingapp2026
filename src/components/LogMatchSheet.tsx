@@ -24,7 +24,7 @@ import { Trash2 } from 'lucide-react-native';
 import { colors, spacing, borderRadius } from '../theme/colors';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const SHEET_HEIGHT = 480;
+const SHEET_HEIGHT = 460;
 const DISMISS_THRESHOLD = 150;
 
 // Strong type for game scores - ensures no blank/invalid chips
@@ -785,7 +785,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.xl,
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
     marginTop: spacing.md,
   },
   scoreColumn: {
@@ -829,16 +829,18 @@ const styles = StyleSheet.create({
     minWidth: 50,
     textAlign: 'center',
   },
-  // Add game - text only, low emphasis
+  // Add game button - accessible touch target
   addGameButton: {
     alignSelf: 'center',
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.md,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   addGameButtonText: {
     color: colors.textMuted,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '500',
   },
   addGameButtonTextDisabled: {
@@ -847,13 +849,15 @@ const styles = StyleSheet.create({
   },
   actions: {
     paddingHorizontal: spacing.lg,
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   saveButton: {
     backgroundColor: colors.accent,
     paddingVertical: spacing.md + 2,
     borderRadius: borderRadius.lg,
     alignItems: 'center',
+    minHeight: 50,
+    justifyContent: 'center',
   },
   saveButtonDisabled: {
     backgroundColor: colors.textMuted,
@@ -873,8 +877,10 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   cancelButton: {
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
     alignItems: 'center',
+    minHeight: 44,
+    justifyContent: 'center',
   },
   cancelButtonText: {
     color: colors.textMuted,
@@ -977,7 +983,8 @@ export function LogMatchGrabHandle({ onPress }: { onPress: () => void }) {
 const grabHandleStyles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    paddingVertical: spacing.xl,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xxl * 2,
     marginTop: spacing.lg,
   },
   hitArea: {

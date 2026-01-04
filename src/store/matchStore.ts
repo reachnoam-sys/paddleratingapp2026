@@ -197,6 +197,110 @@ class MatchStore {
     this.matches = [];
     this.notify();
   }
+
+  // Seed mock matches for testing
+  seedMockMatches(): void {
+    if (this.matches.length > 0) return; // Don't seed if already have matches
+
+    const now = Date.now();
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+    // Mock match 1 - Pending confirmation (2-1 win, 3 games)
+    const pendingMatch: Match = {
+      id: 'mock-match-pending-1',
+      createdAt: now - 5 * 60 * 1000, // 5 mins ago
+      courtId: 'lincoln-park',
+      courtName: 'Lincoln Park',
+      mode: 'doubles',
+      teamA: [
+        { id: 'current-user', name: 'You', avatarUrl: 'https://i.pravatar.cc/150?u=you', ratingBefore: 1420 },
+        { id: 'partner-1', name: 'David Chen', avatarUrl: 'https://i.pravatar.cc/150?u=david', ratingBefore: 1380 },
+      ],
+      teamB: [
+        { id: 'opp-1', name: 'Sarah Kim', avatarUrl: 'https://i.pravatar.cc/150?u=sarah', ratingBefore: 1350 },
+        { id: 'opp-2', name: 'Marcus Lee', avatarUrl: 'https://i.pravatar.cc/150?u=marcus', ratingBefore: 1320 },
+      ],
+      games: [
+        { teamAScore: 11, teamBScore: 7 },
+        { teamAScore: 9, teamBScore: 11 },
+        { teamAScore: 11, teamBScore: 5 },
+      ],
+      teamAWins: 2,
+      teamBWins: 1,
+      status: 'pending',
+      expiresAt: now + TWENTY_FOUR_HOURS,
+      confirmations: [
+        { odinal: 'current-user', state: 'pending' },
+        { odinal: 'partner-1', state: 'approved' },
+        { odinal: 'opp-1', state: 'approved' },
+        { odinal: 'opp-2', state: 'approved' },
+      ],
+    };
+
+    // Mock match 2 - Confirmed (2-0 win yesterday)
+    const confirmedMatch1: Match = {
+      id: 'mock-match-confirmed-1',
+      createdAt: now - 24 * 60 * 60 * 1000, // Yesterday
+      courtId: 'lincoln-park',
+      courtName: 'Lincoln Park',
+      mode: 'doubles',
+      teamA: [
+        { id: 'current-user', name: 'You', avatarUrl: 'https://i.pravatar.cc/150?u=you', ratingBefore: 1400, ratingAfter: 1420 },
+        { id: 'partner-2', name: 'Alex Rivera', avatarUrl: 'https://i.pravatar.cc/150?u=alex', ratingBefore: 1360 },
+      ],
+      teamB: [
+        { id: 'opp-3', name: 'Jordan Park', avatarUrl: 'https://i.pravatar.cc/150?u=jordan', ratingBefore: 1400 },
+        { id: 'opp-4', name: 'Emma Wilson', avatarUrl: 'https://i.pravatar.cc/150?u=emma', ratingBefore: 1380 },
+      ],
+      games: [
+        { teamAScore: 11, teamBScore: 9 },
+        { teamAScore: 11, teamBScore: 8 },
+      ],
+      teamAWins: 2,
+      teamBWins: 0,
+      status: 'confirmed',
+      expiresAt: now,
+      confirmations: [
+        { odinal: 'current-user', state: 'approved' },
+        { odinal: 'partner-2', state: 'approved' },
+        { odinal: 'opp-3', state: 'approved' },
+        { odinal: 'opp-4', state: 'approved' },
+      ],
+      ratingDelta: 20,
+    };
+
+    // Mock match 3 - Confirmed (1-2 loss, 2 days ago)
+    const confirmedMatch2: Match = {
+      id: 'mock-match-confirmed-2',
+      createdAt: now - 2 * 24 * 60 * 60 * 1000, // 2 days ago
+      courtId: 'riverside-courts',
+      courtName: 'Riverside Courts',
+      mode: 'singles',
+      teamA: [
+        { id: 'current-user', name: 'You', avatarUrl: 'https://i.pravatar.cc/150?u=you', ratingBefore: 1420, ratingAfter: 1400 },
+      ],
+      teamB: [
+        { id: 'opp-5', name: 'Chris Taylor', avatarUrl: 'https://i.pravatar.cc/150?u=chris', ratingBefore: 1480 },
+      ],
+      games: [
+        { teamAScore: 11, teamBScore: 9 },
+        { teamAScore: 7, teamBScore: 11 },
+        { teamAScore: 5, teamBScore: 11 },
+      ],
+      teamAWins: 1,
+      teamBWins: 2,
+      status: 'confirmed',
+      expiresAt: now,
+      confirmations: [
+        { odinal: 'current-user', state: 'approved' },
+        { odinal: 'opp-5', state: 'approved' },
+      ],
+      ratingDelta: -20,
+    };
+
+    this.matches = [pendingMatch, confirmedMatch1, confirmedMatch2];
+    this.notify();
+  }
 }
 
 // Singleton instance
@@ -237,5 +341,6 @@ export function useMatchStore() {
     confirmMatch: matchStore.confirmMatch.bind(matchStore),
     disputeMatch: matchStore.disputeMatch.bind(matchStore),
     checkExpiredMatches: matchStore.checkExpiredMatches.bind(matchStore),
+    seedMockMatches: matchStore.seedMockMatches.bind(matchStore),
   };
 }

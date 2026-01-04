@@ -2,6 +2,20 @@
 
 export const APP_NAME = 'Paddle Rating';
 
+// Feature flags - flip these for backend integration
+export const FEATURES = {
+  /** Use mock data instead of real API calls */
+  USE_MOCK_API: true,
+  /** Enable offline persistence with AsyncStorage */
+  ENABLE_OFFLINE: false,
+  /** Enable real-time sync (WebSocket/Supabase) */
+  ENABLE_REALTIME: false,
+  /** Show dev panel on long-press (auto-disabled in production) */
+  SHOW_DEV_TOOLS: __DEV__,
+  /** Log API requests/responses to console */
+  LOG_API_CALLS: __DEV__,
+} as const;
+
 // Rating system
 export const RATING = {
   MIN_ELO: 1000,
@@ -19,10 +33,12 @@ export const ANIMATION = {
   PULSE: 1000,
 } as const;
 
-// API endpoints (for future use)
+// API configuration
 export const API = {
-  BASE_URL: '', // Will be set from env
+  BASE_URL: '', // Set from env: process.env.EXPO_PUBLIC_API_URL
   TIMEOUT: 10000,
+  RETRY_ATTEMPTS: 3,
+  RETRY_DELAY: 1000,
 } as const;
 
 // Player status options

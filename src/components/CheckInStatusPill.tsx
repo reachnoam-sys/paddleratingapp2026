@@ -4,6 +4,8 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  FadeIn,
+  FadeOut,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { ChevronDown } from 'lucide-react-native';
@@ -72,40 +74,46 @@ export function CheckInStatusPill({
     transform: [{ scale: buttonScale.value }],
   }));
 
-  // Not checked in - show full-width CTA button
-  if (!isCheckedIn) {
-    return (
-      <AnimatedPressable
-        style={[styles.checkInButton, animatedStyle]}
-        onPress={handlePress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-      >
-        <Text style={styles.checkInButtonText}>Check In</Text>
-      </AnimatedPressable>
-    );
-  }
-
-  // Checked in - show hero status pill with dropdown
   return (
     <View style={styles.wrapper}>
       <AnimatedPressable
-        style={[styles.heroPill, animatedStyle]}
+        style={[styles.button, animatedStyle]}
         onPress={handlePress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
       >
-        <View style={[styles.statusDot, { backgroundColor: config.color }]} />
-        <Text style={[styles.heroLabel, { color: config.color }]}>
-          {config.label}
-        </Text>
-        <ChevronDown size={16} color={colors.textMuted} />
+        {!isCheckedIn ? (
+          <Animated.Text
+            key="checkin"
+            entering={FadeIn.duration(200)}
+            exiting={FadeOut.duration(150)}
+            style={styles.buttonText}
+          >
+            Check In
+          </Animated.Text>
+        ) : (
+          <Animated.View
+            key="status"
+            entering={FadeIn.duration(200).delay(100)}
+            exiting={FadeOut.duration(150)}
+            style={styles.statusContent}
+          >
+            <View style={[styles.statusDot, { backgroundColor: config.color }]} />
+            <Text style={styles.statusLabel}>{config.label}</Text>
+            <ChevronDown size={16} color={colors.black} style={{ opacity: 0.6 }} />
+          </Animated.View>
+        )}
       </AnimatedPressable>
 
-      {/* Auto-match status - secondary muted text */}
-      <Text style={styles.autoMatchText}>
-        Auto-match {autoMatchEnabled ? 'on' : 'off'}
-      </Text>
+      {/* Auto-match text - only show when checked in */}
+      {isCheckedIn && (
+        <Animated.Text
+          entering={FadeIn.duration(200).delay(150)}
+          style={styles.autoMatchText}
+        >
+          Auto-match {autoMatchEnabled ? 'on' : 'off'}
+        </Animated.Text>
+      )}
     </View>
   );
 }
@@ -114,37 +122,35 @@ const styles = StyleSheet.create({
   wrapper: {
     alignItems: 'center',
     gap: spacing.xs,
+    width: '100%',
   },
-  checkInButton: {
+  button: {
     width: '100%',
     backgroundColor: colors.accent,
     paddingVertical: spacing.md + 2,
     borderRadius: borderRadius.lg,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
   },
-  checkInButtonText: {
+  buttonText: {
     color: colors.black,
     fontSize: 16,
     fontWeight: '600',
   },
-  heroPill: {
+  statusContent: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    paddingVertical: spacing.sm + 2,
-    paddingHorizontal: spacing.lg,
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   statusDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
   },
-  heroLabel: {
-    fontSize: 15,
+  statusLabel: {
+    color: colors.black,
+    fontSize: 16,
     fontWeight: '600',
   },
   autoMatchText: {

@@ -9,6 +9,7 @@ interface HeaderProps {
   // Team mode props
   partnerAvatar?: string;
   onLeaveTeam?: () => void;
+  onTeamPress?: () => void;
   // Match mode props
   isMatchInProgress?: boolean;
   onCancelMatch?: () => void;
@@ -27,6 +28,7 @@ export function Header({
   locationName,
   partnerAvatar,
   onLeaveTeam,
+  onTeamPress,
   isMatchInProgress,
   onCancelMatch,
   onLongPressLocation,
@@ -84,7 +86,7 @@ export function Header({
       {/* User/Team Avatar */}
       <Pressable
         style={styles.userSection}
-        onPress={onProfilePress}
+        onPress={isTeamMode && onTeamPress ? onTeamPress : onProfilePress}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
         {isTeamMode ? (
