@@ -783,8 +783,9 @@ const styles = StyleSheet.create({
   },
   scoreSection: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl,
+    justifyContent: 'center',
+    gap: 32,
+    paddingHorizontal: spacing.lg,
     marginBottom: spacing.lg,
     marginTop: spacing.md,
   },
